@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VORTEX // 6D HEXERACT OMNI-BRIDGE</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background-color: #020305;
+            color: #38bdf8;
+            font-family: 'Monaco', 'Consolas', 'Ubuntu Mono', monospace;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            cursor: crosshair;
+        }
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+        }
+        #overlay {
+            position: absolute;
+            top: 25px;
+            left: 25px;
+            z-index: 2;
+            background: rgba(5, 8, 12, 0.85);
+            padding: 20px 25px;
+            border: 1px solid #1e293b;
+            border-left: 3px solid #38bdf8;
+            border-radius: 4px;
+            pointer-events: none;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.9);
+            backdrop-filter: blur(6px);
+        }
+        h1 { font-size: 1.1rem; letter-spacing: 4px; text-transform: uppercase; margin-bottom: 10px; color: #e2e8f0; }
+        p { font-size: 0.75rem; color: #64748b; line-height: 1.6; }
+        .highlight { color: #00ff00; }
+        .data-stream { color: #38bdf8; margin-top: 15px; font-size: 0.7rem; text-transform: uppercase; }
+    </style>
+</head>
+<body>
+
+    <canvas id="vortexCanvas"></canvas>
+
+    <div id="overlay">
+        <h1>VORTEX // 6D HEXERACT</h1>
+        <p>64 Knooppunten | 192 Ruimtetijd-Assen<br>
+        6D naar 2D Stereografische Cascade<br>
+        Asymmetrische 29° Torsie ($\tau$)</p>
+        <div class="data-stream" id="telemetry">> INITIALISEREN...</div>
+    </div>
+
+<script>
+// ==========================================
+// DEEL 1: 6D WISKUNDE & DATASTRUCTUUR (CPU)
+// ==========================================
+const VORTEX_ANGLE_RAD = 0.506145; // 29 graden
+const PHI = 1.6180339887;
+
+// Genereer de 64 basispunten van de 6D Hyperkubus (-1 of 1)
+const baseNodes = [];
+for (let i = 0; i < 64; i++) {
+    baseNodes.push([
+        (i & 1) ? 1 : -1,
+        ((i >> 1) & 1) ? 1 : -1,
+        ((i >> 2) & 1) ? 1 : -1,
+        ((i >> 3) & 1) ? 1 : -1,
+        ((i >> 4) & 1) ? 1 : -1,
+        ((i >> 5) & 1) ? 1 : -1
+    ]);
+}
+
+// Genereer de 192 ribben (Hamming afstand == 1)
+const edges = [];
+for (let i = 0; i < 64; i++) {
+    for (let j = i + 1; j < 64; j++) {
+        let diff = i ^ j;
+        // Controleer of het verschil een macht van 2 is (slechts 1 bit verschil)
+        if (diff === 1 || diff === 2 || diff === 4 || diff === 8 || diff === 16 || diff === 32) {
+            edges.push([i, j]);
+        }
+    }
+}
+
+// Rotatie in een specifiek 6D-vlak
+function rotate6D(v, planeA, planeB, angle) {
+    const cosA = Math.cos(angle);
+    const sinA = Math.sin(angle);
+    const result = [...v];
+    result[planeA] = v[planeA] * cosA - v[planeB] * sinA;
+    result[planeB] = v[planeA] * sinA + v[planeB] * cosA;
+    return result;
+}
+
+// Sequentiële Stereografische Projectie (6D -> 5D -> 4D -> 3D -> 2D)
+function project6Dto2D(v6, distance) {
+    // 6D naar 5D
+    let w5 = 1.0 / (distance - v6[5]);
+    let v5 = [v6[0] * w5, v6[1] * w5, v6[2] * w5, v6[3] * w5, v6[4] * w5];
+    
+    // 5D naar 4D
+    let w4 = 1.0 / (distance - v5[4]);
+    let v4 = [v5[0] * w4, v5[1] * w4, v5[2] * w4, v5[3] * w4];
+    
+    // 4D naar 3D
+    let w3 = 1.0 / (distance - v4[3]);
+    let v3 = [v4[0] * w3, v4[1] * w3, v4[2] * w3];
+    
+    // 3D naar 2D
+    let w2 = 1.0 / (distance - v3[2]);
+    return { x: v3[0] * w2, y: v3[1] * w2 };
+}
+
+// ==========================================
+// DEEL 2: CANVAS 2D RENDER ENGINE
+// ==========================================
+const canvas = document.getElementById('vortexCanvas');
+const ctx = canvas.getContext('2d');
+let cw, ch, cx, cy, scale;
+
+function resize() {
+    cw = canvas.width = window.innerWidth;
+    ch = canvas.height = window.innerHeight;
+    cx = cw / 2;
+    cy = ch / 2;
+    scale = Math.min(cw, ch) * 25; // Visuele schaal voor de 6D projectie
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ==========================================
+// DEEL 3: MASTER RENDER LOOP
+// ==========================================
+const telemetryElement = document.getElementById('telemetry');
+
+function render(now) {
+    const timeSec = now * 0.0005; // Vertraagde tijd voor stabiele observatie
+
+    // Wis het canvas met een subtiele motion blur
+    ctx.fillStyle = 'rgba(2, 3, 5, 0.3)';
+    ctx.fillRect(0, 0, cw, ch);
+
+    // 6D Ademhaling (Uitdijing en compressie van het manifold)
+    const breathScale = 1.0 + (Math.sin(timeSec * 3.0) * 0.05);
+
+    // Bepaal de dynamische projectie-afstand
+    const projDistance = 1.8 + (Math.cos(timeSec) * 0.1);
+
+    const projectedNodes = [];
+
+    // Bereken en roteer alle 64 hoekpunten
+    for (let i = 0; i < 64; i++) {
+        let node = [...baseNodes[i]];
+        
+        // Pas schaal toe
+        for(let d=0; d<6; d++) node[d] *= breathScale;
+
+        // Roteer door 3 onafhankelijke 6D-vlakken via de VORTEX-as
+        node = rotate6D(node, 0, 1, timeSec * VORTEX_ANGLE_RAD); // X-Y
+        node = rotate6D(node, 2, 3, timeSec * VORTEX_ANGLE_RAD * PHI); // Z-W
+        node = rotate6D(node, 4, 5, timeSec * 0.8); // V-U (Extra dimensie torsie)
+        node = rotate6D(node, 0, 5, timeSec * 0.3); // Kruisvlak torsie
+
+        // Projecteer de 6D vector naar 2D
+        const p2 = project6Dto2D(node, projDistance);
+        
+        projectedNodes.push({
+            x: cx + p2.x * scale,
+            y: cy + p2.y * scale
+        });
+    }
+
+    // Teken Ribben (192 assen)
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(0, 150, 255, 0.4)';
+    ctx.beginPath();
+    for (let i = 0; i < edges.length; i++) {
+        const pA = projectedNodes[edges[i][0]];
+        const pB = projectedNodes[edges[i][1]];
+        ctx.moveTo(pA.x, pA.y);
+        ctx.lineTo(pB.x, pB.y);
+    }
+    ctx.stroke();
+
+    // Teken Knooppunten (64 stuks)
+    for (let i = 0; i < 64; i++) {
+        ctx.beginPath();
+        ctx.arc(projectedNodes[i].x, projectedNodes[i].y, 2, 0, Math.PI * 2);
+        
+        // Highlight het grondlegger-hexagram (000000) en zijn 6 directe buren
+        if (i === 0 || i === 1 || i === 2 || i === 4 || i === 8 || i === 16 || i === 32) {
+            ctx.fillStyle = '#00ff00';
+            ctx.shadowColor = '#00ff00';
+            ctx.shadowBlur = 10;
+            ctx.arc(projectedNodes[i].x, projectedNodes[i].y, 3, 0, Math.PI * 2); // Maak iets groter
+        } else {
+            ctx.fillStyle = '#00ffff';
+            ctx.shadowColor = '#00ffff';
+            ctx.shadowBlur = 5;
+        }
+        ctx.fill();
+    }
+
+    // Telemetrie Update
+    if (Math.floor(now) % 15 === 0) {
+        telemetryElement.innerHTML = `> OMNI-BRIDGE: 6D SYNC<br>> HAMMING ASSEN: 192 ACTIEF<br>> PROJ. AFSTAND: <span class="highlight">${projDistance.toFixed(3)}</span>`;
+    }
+
+    requestAnimationFrame(render);
+}
+
+requestAnimationFrame(render);
+</script>
+
+</body>
+</html>
