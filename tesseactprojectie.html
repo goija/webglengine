@@ -1,1 +1,252 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VORTEX // OMNI-BRIDGE TESSERACT</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background-color: #030508;
+            color: #38bdf8;
+            font-family: 'Monaco', 'Consolas', 'Ubuntu Mono', monospace;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        #glcanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+        }
+        #overlay {
+            position: absolute;
+            top: 25px;
+            left: 25px;
+            z-index: 2;
+            background: rgba(5, 8, 12, 0.85);
+            padding: 20px 25px;
+            border: 1px solid #1e293b;
+            border-left: 3px solid #38bdf8;
+            border-radius: 4px;
+            pointer-events: none;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.9);
+            backdrop-filter: blur(6px);
+        }
+        h1 { font-size: 1.1rem; letter-spacing: 4px; text-transform: uppercase; margin-bottom: 10px; color: #e2e8f0; }
+        p { font-size: 0.75rem; color: #64748b; line-height: 1.6; }
+        .highlight { color: #00ff00; }
+        .data-stream { color: #38bdf8; margin-top: 15px; font-size: 0.7rem; text-transform: uppercase; }
+    </style>
+</head>
+<body>
 
+    <canvas id="glcanvas"></canvas>
+
+    <div id="overlay">
+        <h1>VORTEX // TESSERACT</h1>
+        <p>4D Stereografische Projectie<br>
+        Quaternion Kinematica (q = w+xi+yj+zk)<br>
+        29° Asymmetrische Vortex-As ($\tau$)</p>
+        <div class="data-stream" id="telemetry">> OMNI-BRIDGE STATUS: ACTIEF</div>
+    </div>
+
+<script>
+const canvas = document.getElementById('glcanvas');
+const gl = canvas.getContext('webgl2');
+
+if (!gl) {
+    alert('WebGL2 wordt niet ondersteund. Gebruik een compatibele browser zoals Firefox.');
+}
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+// --- VERTEX SHADER (Basis Passthrough) ---
+const vsSource = `#version 300 es
+    in vec4 aVertexPosition;
+    void main() {
+        gl_Position = aVertexPosition;
+    }
+`;
+
+// --- FRAGMENT SHADER (Uw exacte VORTEX Tesseract Code) ---
+const fsSource = `#version 300 es
+    precision highp float;
+
+    uniform vec2 u_resolution;
+    uniform float u_time;
+
+    // Vereiste WebGL2 output declaratie
+    out vec4 fragColor;
+
+    // Fundamentele VORTEX Constanten
+    #define VORTEX_ANGLE_RAD 0.506145 // De 29° WTC-as afwijking in radialen
+    #define PHI 1.6180339887          // Gulden Snede voor de 144/90 as-verhouding
+
+    // Quaternion Vermenigvuldiging (Gimbal Lock preventie)
+    vec4 qmul(vec4 q1, vec4 q2) {
+        return vec4(
+            q1.x * q2.w + q1.y * q2.z - q1.z * q2.y + q1.w * q2.x,
+            -q1.x * q2.z + q1.y * q2.w + q1.z * q2.x + q1.w * q2.y,
+            q1.x * q2.y - q1.y * q2.x + q1.z * q2.w + q1.w * q2.z,
+            -q1.x * q2.x - q1.y * q2.y - q1.z * q2.z + q1.w * q2.w
+        );
+    }
+
+    // Genereer een quaternion-rotor gebaseerd op een as en een hoek
+    vec4 createRotor(vec3 axis, float angle) {
+        vec3 a = normalize(axis);
+        float s = sin(angle / 2.0);
+        return vec4(a.x * s, a.y * s, a.z * s, cos(angle / 2.0));
+    }
+
+    // 4D naar 3D naar 2D Stereografische Projectie
+    vec2 project4Dto2D(vec4 p4) {
+        float distance = 3.0; // Afstand van de 4D-waarnemer
+        float w_factor = 1.0 / (distance - p4.w); // 4D perspectief-deling
+        
+        vec3 p3 = p4.xyz * w_factor; // Projectie naar 3D
+        float z_factor = 1.0 / (distance - p3.z); // 3D naar 2D perspectief
+        
+        return p3.xy * z_factor;
+    }
+
+    void main() {
+        // Normaliseer het canvas en centreer
+        vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
+        vec3 finalColor = vec3(0.0);
+
+        // 1. De 4D Ademhaling (Uitdijing en Samenpersing)
+        // Simuleert de pulsatie tussen de basis (90) en de 108° resonantie
+        float breathScale = mix(0.90, 1.08, (sin(u_time * 2.0) + 1.0) / 2.0);
+
+        // 2. Quaternion Rotatie via de 29° Vortex-as
+        // We roteren zowel in het XW als het YZ vlak via de VORTEX_ANGLE_RAD
+        float theta = u_time * VORTEX_ANGLE_RAD;
+        vec4 rotorXW = createRotor(vec3(1.0, 0.0, 0.0), theta);
+        vec4 rotorYZ = createRotor(vec3(0.0, 1.0, 0.0), theta * PHI); 
+
+        // Render de 16 Hoekpunten van de Tesseract via een iteratieve loop
+        // (B(-1, 1) in 4D coördinaten)
+        for(int i = 0; i < 16; i++) {
+            // Genereer de binaire 4D coördinaten (-1.0 of 1.0)
+            vec4 v = vec4(
+                float((i & 1) * 2 - 1),
+                float(((i >> 1) & 1) * 2 - 1),
+                float(((i >> 2) & 1) * 2 - 1),
+                float(((i >> 3) & 1) * 2 - 1)
+            );
+
+            // Pas de 4D Ademhaling toe
+            v *= breathScale;
+
+            // Pas Quaternion Rotaties toe
+            v = qmul(rotorXW, v);
+            v = qmul(rotorYZ, v);
+
+            // Stereografische Projectie naar het 2D Dashboard
+            vec2 p2 = project4Dto2D(v);
+
+            // Tesseract Geo-Selectie: Highlight 4 dimensionale spiegelpunten rond de kern
+            float glowIntensity = 0.01;
+            vec3 nodeColor = vec3(0.0, 1.0, 0.8); // VORTEX Cyaan
+
+            if (i == 0 || i == 5 || i == 10 || i == 15) {
+                glowIntensity = 0.03; // Versterk de gloed van de geselecteerde spiegelpunten
+                nodeColor = vec3(0.0, 1.0, 0.0); // Groene 'Active Sync' kleur
+            }
+
+            // Teken het hoekpunt (Node) via een Signed Distance Field (SDF)
+            float dist = length(uv - p2 * 0.4); // Schaal projectie voor schermweergave
+            finalColor += nodeColor * (glowIntensity / dist);
+        }
+
+        // Output naar VORTEX UI
+        fragColor = vec4(finalColor, 1.0);
+    }
+`;
+
+// --- Shader Compiler Helper ---
+function loadShader(gl, type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        console.error('Shader compile error:', gl.getShaderInfoLog(shader));
+        gl.deleteShader(shader);
+        return null;
+    }
+    return shader;
+}
+
+// Compileer het Shader Programma
+const vertexShader = loadShader(gl, gl.VERTEX_SHADER, vsSource);
+const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, fsSource);
+const shaderProgram = gl.createProgram();
+gl.attachShader(shaderProgram, vertexShader);
+gl.attachShader(shaderProgram, fragmentShader);
+gl.linkProgram(shaderProgram);
+
+if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+    console.error('Shader link error:', gl.getProgramInfoLog(shaderProgram));
+}
+
+// --- Geometrie (Full Screen Quad) ---
+const positions = new Float32Array([
+    -1.0,  1.0,
+    -1.0, -1.0,
+     1.0,  1.0,
+     1.0, -1.0,
+]);
+const positionBuffer = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+
+const positionAttributeLocation = gl.getAttribLocation(shaderProgram, 'aVertexPosition');
+gl.enableVertexAttribArray(positionAttributeLocation);
+gl.vertexAttribPointer(positionAttributeLocation, 2, gl.FLOAT, false, 0, 0);
+
+// --- Uniform Locaties ---
+const resolutionLocation = gl.getUniformLocation(shaderProgram, 'u_resolution');
+const timeLocation = gl.getUniformLocation(shaderProgram, 'u_time');
+
+gl.useProgram(shaderProgram);
+
+// --- Event Listeners ---
+window.addEventListener('resize', () => {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    gl.viewport(0, 0, canvas.width, canvas.height);
+});
+
+// --- De Render Loop ---
+const telemetryElement = document.getElementById('telemetry');
+
+function render(now) {
+    const timeSec = now * 0.001;
+
+    gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
+    gl.uniform1f(timeLocation, timeSec);
+
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    
+    // Dynamische Telemetrie Update voor de UI
+    if(Math.floor(now) % 15 === 0) {
+        telemetryElement.innerHTML = `> OMNI-BRIDGE: SYNC<br>> 4D SCHAAL: <span class="highlight">${(Math.sin(timeSec * 2.0) * 0.09 + 0.99).toFixed(3)}</span><br>> QUATERNION ROT: WX/YZ ACTIEF`;
+    }
+
+    requestAnimationFrame(render);
+}
+
+requestAnimationFrame(render);
+</script>
+
+</body>
+</html>
