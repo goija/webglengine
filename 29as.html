@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VORTEX — Palace Set Matrix & Gray-Code Router</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background-color: #0c0f12;
+            color: #e2e8f0;
+            font-family: 'Monaco', 'Consolas', 'Ubuntu Mono', monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        #dashboard-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: radial-gradient(circle at center, #13181e 0%, #080a0d 100%);
+            border: 1px solid #1e293b;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.7);
+        }
+        header {
+            margin-bottom: 20px;
+            text-align: center;
+            border-bottom: 1px solid #1e293b;
+            width: 100%;
+            padding-bottom: 12px;
+        }
+        h1 {
+            font-size: 1.2rem;
+            letter-spacing: 2px;
+            color: #38bdf8;
+            text-transform: uppercase;
+        }
+        p.subtitle {
+            font-size: 0.8rem;
+            color: #64748b;
+            margin-top: 4px;
+        }
+        canvas {
+            background-color: #090d11;
+            border: 1px solid #1e293b;
+            border-radius: 8px;
+            cursor: crosshair;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+        }
+        footer {
+            margin-top: 15px;
+            font-size: 0.75rem;
+            color: #475569;
+            text-align: center;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+
+<div id="dashboard-container">
+    <header>
+        <h1>VORTEX // 6D Routing Telemetrie</h1>
+        <p class="subtitle">Klik op een Wuxing-knoop om het Gray-code datapakket te verzenden</p>
+    </header>
+
+    <canvas id="vortexCanvas" width="500" height="500"></canvas>
+
+    <footer>
+        <span>Ijktransport-algebra & Glitch-vrije Gray-Code Routering actief</span>
+    </footer>
+</div>
+
+<script>
+const canvas = document.getElementById('vortexCanvas');
+const ctx = canvas.getContext('2d');
+
+// Wuxing Kleurenpalet
+const WUXING_COLORS = {
+    'WOOD':  '#2E8B57', 
+    'FIRE':  '#FF4500', 
+    'EARTH': '#DAA520', 
+    'METAL': '#D3D3D3', 
+    'WATER': '#1E90FF'  
+};
+
+const INTERACTION_STYLES = {
+    'SHENG': { color: 'rgba(46, 139, 87, 0.6)', dash: [] },        
+    'KE':    { color: 'rgba(255, 69, 0, 0.8)',  dash: [4, 4] },    
+    'SAME':  { color: 'rgba(100, 149, 237, 0.4)', dash: [] }       
+};
+
+// Data Modellering: Palace Set (Hexagram structuur via 6-bit integers)
+const palaceNodes = [
+    { val: 0x1B, wuxing: 'METAL' },
+    { val: 0x1A, wuxing: 'WATER' },
+    { val: 0x18, wuxing: 'WOOD' }, 
+    { val: 0x1C, wuxing: 'FIRE' }, 
+    { val: 0x14, wuxing: 'EARTH' },
+    { val: 0x04, wuxing: 'METAL' },
+    { val: 0x0C, wuxing: 'WATER' }, // Uun
+    { val: 0x24, wuxing: 'WOOD' }   // Gui
+];
+
+// Globale variabele voor de telemetrie-animatie
+let travelingDot = null;
+
+function getWuxingInteraction(w1, w2) {
+    if (w1 === w2) return 'SAME';
+    const shengRules = { 'WOOD':'FIRE', 'FIRE':'EARTH', 'EARTH':'METAL', 'METAL':'WATER', 'WATER':'WOOD' };
+    if (shengRules[w1] === w2 || shengRules[w2] === w1) return 'SHENG';
+    return 'KE'; 
+}
+
+// --- STAP 1: De Event Listener (Activeert de Transmissie) ---
+canvas.addEventListener('click', (event) => {
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = event.clientX - rect.left;
+    const mouseY = event.clientY - rect.top;
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    const R = 150; 
+
+    palaceNodes.forEach((node, i) => {
+        const theta = i * (Math.PI / 4);
+        const nodeX = centerX + R * Math.cos(theta);
+        const nodeY = centerY + R * Math.sin(theta);
+
+        if (Math.hypot(mouseX - nodeX, mouseY - nodeY) < 18) {
+            
+            // Zoek de complementaire bestemming (Polaire Inversie ^ 0x3F)
+            const complementVal = node.val ^ 0x3F;
+            const targetIndex = palaceNodes.findIndex(n => n.val === complementVal);
+
+            if (targetIndex !== -1 && !travelingDot) {
+                // Gray-code Transformatie voor glitch-vrije routering
+                const grayCodeVal = node.val ^ (node.val >> 1);
+                const targetTheta = targetIndex * (Math.PI / 4);
+
+                // Initialiseer het reizende datapakket
+                travelingDot = {
+                    startX: nodeX,
+                    startY: nodeY,
+                    targetX: centerX + R * Math.cos(targetTheta),
+                    targetY: centerY + R * Math.sin(targetTheta),
+                    progress: 0,
+                    grayCode: grayCodeVal,
+                    wuxing: node.wuxing
+                };
+            }
+        }
+    });
+});
+
+// --- STAP 2: De Main Render Loop ---
+function renderVortexOctagon(timestamp) {
+    const width = canvas.width;
+    const height = canvas.height;
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const R = 150; 
+
+    ctx.clearRect(0, 0, width, height);
+
+    // Teken de statische transitie-banen (Ijkveld)
+    palaceNodes.forEach((node, i) => {
+        const theta1 = i * (Math.PI / 4);
+        const x1 = centerX + R * Math.cos(theta1);
+        const y1 = centerY + R * Math.sin(theta1);
+
+        const complementVal = node.val ^ 0x3F;
+        const complementIndex = palaceNodes.findIndex(n => n.val === complementVal);
+
+        if (complementIndex !== -1 && complementIndex > i) {
+            const theta2 = complementIndex * (Math.PI / 4);
+            const x2 = centerX + R * Math.cos(theta2);
+            const y2 = centerY + R * Math.sin(theta2);
+
+            const interactionType = getWuxingInteraction(node.wuxing, palaceNodes[complementIndex].wuxing);
+            const style = INTERACTION_STYLES[interactionType];
+
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+
+            if (interactionType === 'KE') {
+                const pulse = (Math.sin(timestamp * 0.005) + 1) / 2;
+                ctx.strokeStyle = `rgba(255, 69, 0, ${0.3 + pulse * 0.5})`;
+                ctx.lineWidth = 2.5;
+            } else {
+                ctx.strokeStyle = style.color;
+                ctx.lineWidth = 1.5;
+            }
+
+            ctx.setLineDash(style.dash);
+            ctx.stroke();
+        }
+    });
+
+    // Render actieve data-transmissie (Kinetisch Foton)
+    if (travelingDot) {
+        travelingDot.progress += 0.015; 
+
+        if (travelingDot.progress > 1) {
+            travelingDot = null; 
+        } else {
+            const currentX = travelingDot.startX + (travelingDot.targetX - travelingDot.startX) * travelingDot.progress;
+            const currentY = travelingDot.startY + (travelingDot.targetY - travelingDot.startY) * travelingDot.progress;
+
+            ctx.beginPath();
+            ctx.arc(currentX, currentY, 6, 0, 2 * Math.PI);
+            ctx.fillStyle = '#FFFFFF'; 
+
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = WUXING_COLORS[travelingDot.wuxing];
+            ctx.fill();
+
+            ctx.shadowBlur = 0; 
+            ctx.fillStyle = '#00FF00'; 
+            ctx.font = 'bold 12px monospace';
+
+            const hexAddress = travelingDot.grayCode.toString(16).padStart(2, '0').toUpperCase();
+            ctx.fillText(`[G-CODE: 0x${hexAddress}]`, currentX + 12, currentY - 12);
+        }
+    }
+
+    // Teken de fysieke Wuxing-knooppunten
+    ctx.setLineDash([]); 
+    palaceNodes.forEach((node, i) => {
+        const theta = i * (Math.PI / 4);
+        const x = centerX + R * Math.cos(theta);
+        const y = centerY + R * Math.sin(theta);
+
+        ctx.beginPath();
+        ctx.arc(x, y, 12, 0, 2 * Math.PI);
+        ctx.fillStyle = '#090d11';
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = WUXING_COLORS[node.wuxing];
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(x, y, 6, 0, 2 * Math.PI);
+        ctx.fillStyle = WUXING_COLORS[node.wuxing];
+        ctx.fill();
+
+        ctx.fillStyle = '#e2e8f0';
+        ctx.font = '10px monospace';
+        const lx = x + 24 * Math.cos(theta) - 12;
+        const ly = y + 24 * Math.sin(theta) + 4;
+        ctx.fillText(`0x${node.val.toString(16).toUpperCase().padStart(2, '0')}`, lx, ly);
+    });
+
+    requestAnimationFrame(renderVortexOctagon);
+}
+
+// Initialiseer de animatie
+requestAnimationFrame(renderVortexOctagon);
+</script>
+
+</body>
+</html>
