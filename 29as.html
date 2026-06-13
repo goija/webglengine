@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VORTEX // GLSL DataTexture & I Ching Matrix</title>
+    <title>VORTEX // GLSL Torus-Engine & 29° Manifold</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -33,7 +33,7 @@
             padding: 15px 20px;
             border: 1px solid #1e293b;
             border-radius: 8px;
-            pointer-events: none;
+            pointer-events: none; /* Laat muisklikken door naar het canvas */
             box-shadow: 0 4px 15px rgba(0,0,0,0.5);
             backdrop-filter: blur(4px);
         }
@@ -47,10 +47,10 @@
     <canvas id="glcanvas"></canvas>
 
     <div id="overlay">
-        <h1>VORTEX // Matrix Injection</h1>
-        <p>18x13 Faseruimte | Hardcoded Hexagrammen<br>
-        DataTexture: RG8UI (Hex, Wuxing)</p>
-        <div class="data-stream" id="telemetry">> INIT: u_dataGrid sync...</div>
+        <h1>VORTEX // WebGL Engine</h1>
+        <p>18x13 Faseruimte | Torus Topologie<br>
+        29° Asymmetrische Torsie ($\tau$)</p>
+        <div class="data-stream" id="telemetry">> INIT: u_time sync...</div>
     </div>
 
 <script>
@@ -58,13 +58,14 @@ const canvas = document.getElementById('glcanvas');
 const gl = canvas.getContext('webgl2');
 
 if (!gl) {
-    alert('WebGL2 wordt niet ondersteund in deze browser. Gebruik Firefox met WebGL ingeschakeld.');
+    alert('WebGL2 wordt niet ondersteund in deze browser.');
 }
 
+// Pas canvas aan naar de volledige venstergrootte
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
-// --- VERTEX SHADER ---
+// --- VERTEX SHADER (Basis Passthrough) ---
 const vsSource = `#version 300 es
     in vec4 aVertexPosition;
     void main() {
@@ -72,91 +73,98 @@ const vsSource = `#version 300 es
     }
 `;
 
-// --- FRAGMENT SHADER ---
+// --- FRAGMENT SHADER (De VORTEX Engine met uitbreidingen) ---
 const fsSource = `#version 300 es
     precision highp float;
-    // usampler2D is essentieel voor het lezen van Integer Textures (geen floats!)
-    uniform highp usampler2D u_dataGrid; 
-    
+
     uniform vec2 u_resolution;
     uniform float u_time;
-    uniform vec2 u_mouse;
+    uniform vec2 u_mouse; // Observer interactie
     
     out vec4 fragColor;
 
-    #define VORTEX_ANGLE_RAD 0.506145 // 29 graden
+    #define PI 3.14159265359
+    #define VORTEX_ANGLE_RAD 0.506145 // 29 graden WTC-as
 
-    vec3 getWuxingColor(uint element) {
-        if(element == 0u) return vec3(0.18, 0.54, 0.34); // Hout
-        if(element == 1u) return vec3(1.00, 0.27, 0.00); // Vuur
-        if(element == 2u) return vec3(0.85, 0.64, 0.12); // Aarde
-        if(element == 3u) return vec3(0.82, 0.82, 0.82); // Metaal
-        return vec3(0.11, 0.56, 1.00);                   // Water
+    // Wuxing Ijkveld
+    vec3 getWuxingColor(int element) {
+        if(element == 0) return vec3(0.18, 0.54, 0.34); // Hout
+        if(element == 1) return vec3(1.00, 0.27, 0.00); // Vuur
+        if(element == 2) return vec3(0.85, 0.64, 0.12); // Aarde
+        if(element == 3) return vec3(0.82, 0.82, 0.82); // Metaal
+        return vec3(0.11, 0.56, 1.00);                  // Water
     }
 
     void main() {
+        // Normaliseer coördinaten
         vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+        
+        // Inverteer Y-as voor de muis, zodat het overeenkomt met de schermcoördinaten
         vec2 mouseUV = vec2(u_mouse.x, u_resolution.y - u_mouse.y) / u_resolution.xy;
 
+        // Observer Effect: De nabijheid van de muis beïnvloedt subtiel de rotatiehoek (ruimtetijd vervorming)
         float dynamicVortex = VORTEX_ANGLE_RAD + (mouseUV.x - 0.5) * 0.1;
+
+        // Rotatiematrix
         mat2 vortexRot = mat2(cos(dynamicVortex), -sin(dynamicVortex),
                               sin(dynamicVortex),  cos(dynamicVortex));
 
-        // 18x13 Raster Projectie
+        // 18x13 Raster
         vec2 gridUV = vortexRot * (uv * vec2(18.0, 13.0));
+
+        // Torus Topologie met organische oscillatie (Zandloper-golf)
         gridUV += vec2(sin(u_time * 0.5 + gridUV.y), cos(u_time * 0.3 + gridUV.x)) * 0.05;
         
         vec2 cellUV = fract(gridUV);
         vec2 cellIndex = floor(gridUV);
 
-        // --- DATA INJECTION (O(1) Texture Fetch) ---
-        // Vertaal ruimtelijke coördinaten terug naar 0-17 (X) en 0-12 (Y) via modulo voor de perfecte torus
-        ivec2 texCoord = ivec2(int(mod(cellIndex.x, 18.0)), int(mod(cellIndex.y, 13.0)));
-        
-        // Lees de hardcoded waarden uit de DataTexture
-        uvec2 cellData = texelFetch(u_dataGrid, texCoord, 0).rg;
-        uint hexagramValue = cellData.r; // 0-63
-        uint wuxingElement = cellData.g; // 0-4
+        // Bepaal element
+        int element = int(mod(cellIndex.x * 7.0 + cellIndex.y * 3.0, 5.0));
+        vec3 baseColor = getWuxingColor(element);
 
-        vec3 baseColor = getWuxingColor(wuxingElement);
-
-        // Muis Frictie & Torsie (τ)
+        // Muis/Waarnemer frictie
         float distToMouse = length(uv - mouseUV);
         float observerPressure = smoothstep(0.15, 0.0, distToMouse) * 2.0;
 
+        // Lokale Torsie
         float torsionX = sin(u_time * 2.0 + cellIndex.x * 0.8);
         float torsionY = cos(u_time * 1.5 + cellIndex.y * 1.2);
+        
+        // Torsie piekt wanneer golven overlappen, of wanneer de waarnemer ingrijpt
         float torsion = torsionX * torsionY + observerPressure; 
 
-        // Ke-frictie
+        // Ke-frictie activatie (rode gloed)
         float frictionPulse = smoothstep(0.4, 0.9, abs(torsion));
         vec3 keHighlight = vec3(1.0, 0.1, 0.0) * frictionPulse;
 
-        // Cel Gloed
+        // Voronoi cel-gloed
         float edgeDist = length(cellUV - vec2(0.5));
         float nodeGlow = smoothstep(0.5, 0.1, edgeDist);
 
+        // Samenvoegen van de structuren
         vec3 finalColor = mix(baseColor * nodeGlow, keHighlight, frictionPulse * 0.7);
 
-        // Gray-Code Fotonen (Pulseert nu op basis van de hexagram binaire waarde!)
+        // Reizende Gray-code fotonen over het raster
         float sparkSpeed = u_time * 4.0;
-        // Introduceer een ritme gebaseerd op de hexagramwaarde (asymmetrisch patroon)
-        float bitPulse = float(hexagramValue) * 0.05; 
-        float sparkX = smoothstep(0.95, 1.0, sin(sparkSpeed + cellIndex.x + bitPulse));
-        float sparkY = smoothstep(0.95, 1.0, cos(sparkSpeed + cellIndex.y + bitPulse));
+        float sparkX = smoothstep(0.95, 1.0, sin(sparkSpeed + cellIndex.x));
+        float sparkY = smoothstep(0.95, 1.0, cos(sparkSpeed + cellIndex.y));
+        float dataSpark = max(sparkX, sparkY);
         
-        finalColor += vec3(0.0, 1.0, 0.2) * max(sparkX, sparkY) * 0.8;
+        // Groene injectie op de pieken
+        finalColor += vec3(0.0, 1.0, 0.2) * dataSpark * 0.6;
 
         fragColor = vec4(finalColor, 1.0);
     }
 `;
 
+// --- Shader Compiler Functies ---
 function loadShader(gl, type, source) {
     const shader = gl.createShader(type);
     gl.shaderSource(shader, source);
     gl.compileShader(shader);
     if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
         console.error('Shader compile error:', gl.getShaderInfoLog(shader));
+        gl.deleteShader(shader);
         return null;
     }
     return shader;
@@ -170,58 +178,33 @@ gl.attachShader(shaderProgram, vertexShader);
 gl.attachShader(shaderProgram, fragmentShader);
 gl.linkProgram(shaderProgram);
 
-// Geometrie Setup
-const positions = new Float32Array([-1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0, -1.0]);
+if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+    console.error('Shader link error:', gl.getProgramInfoLog(shaderProgram));
+}
+
+// --- Geometrie (Full Screen Quad) ---
+const positions = new Float32Array([
+    -1.0,  1.0,
+    -1.0, -1.0,
+     1.0,  1.0,
+     1.0, -1.0,
+]);
 const positionBuffer = gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
 gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
 
-const posAttr = gl.getAttribLocation(shaderProgram, 'aVertexPosition');
-gl.enableVertexAttribArray(posAttr);
-gl.vertexAttribPointer(posAttr, 2, gl.FLOAT, false, 0, 0);
+const positionAttributeLocation = gl.getAttribLocation(shaderProgram, 'aVertexPosition');
+gl.enableVertexAttribArray(positionAttributeLocation);
+gl.vertexAttribPointer(positionAttributeLocation, 2, gl.FLOAT, false, 0, 0);
 
-// --- DE DATA-TEXTURE GENERATOR (18x13 Raster) ---
-const GRID_WIDTH = 18;
-const GRID_HEIGHT = 13;
-const TOTAL_CELLS = GRID_WIDTH * GRID_HEIGHT;
-
-// We gebruiken een Uint8Array. Elk pixel heeft 2 kanalen: R (Hexagram) en G (Wuxing)
-const gridData = new Uint8Array(TOTAL_CELLS * 2);
-
-for (let i = 0; i < TOTAL_CELLS; i++) {
-    // Hier kunt u uw exacte database-mapping uit de VORTEX backend invoeren.
-    // Voor nu genereren we de King Wen-sequentie als placeholder.
-    let hexValue = i % 64; 
-    
-    // Bepaal de Wuxing fase (placeholder logica, pas aan naar uw paleis-structuur)
-    // 0:Hout, 1:Vuur, 2:Aarde, 3:Metaal, 4:Water
-    let wuxingValue = (hexValue % 5); 
-
-    gridData[i * 2] = hexValue;      // Red Kanaal: Hexagram Index
-    gridData[i * 2 + 1] = wuxingValue; // Green Kanaal: Wuxing Phase
-}
-
-// Bind de Texture aan WebGL
-const dataTexture = gl.createTexture();
-gl.bindTexture(gl.TEXTURE_2D, dataTexture);
-// rg8ui = Red/Green 8-bit Unsigned Integer
-gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8UI, GRID_WIDTH, GRID_HEIGHT, 0, gl.RG_INTEGER, gl.UNSIGNED_BYTE, gridData);
-// Voorkom interpolatie (filtering) zodat de binaire waarden niet mengen (we willen zuivere integers)
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-
-// --- Uniforms ---
-gl.useProgram(shaderProgram);
+// --- Uniform Locaties ---
 const resolutionLocation = gl.getUniformLocation(shaderProgram, 'u_resolution');
 const timeLocation = gl.getUniformLocation(shaderProgram, 'u_time');
 const mouseLocation = gl.getUniformLocation(shaderProgram, 'u_mouse');
-const gridLocation = gl.getUniformLocation(shaderProgram, 'u_dataGrid');
 
-// Koppel texture aan texture-unit 0
-gl.uniform1i(gridLocation, 0); 
+gl.useProgram(shaderProgram);
 
+// --- Event Listeners ---
 let mouseX = canvas.width / 2;
 let mouseY = canvas.height / 2;
 
@@ -230,10 +213,14 @@ window.addEventListener('resize', () => {
     canvas.height = window.innerHeight;
     gl.viewport(0, 0, canvas.width, canvas.height);
 });
-canvas.addEventListener('mousemove', (e) => { mouseX = e.clientX; mouseY = e.clientY; });
 
+canvas.addEventListener('mousemove', (e) => {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+});
+
+// --- De Render Loop ---
 const telemetryElement = document.getElementById('telemetry');
-
 function render(now) {
     const timeSec = now * 0.001;
 
@@ -241,13 +228,11 @@ function render(now) {
     gl.uniform1f(timeLocation, timeSec);
     gl.uniform2f(mouseLocation, mouseX, mouseY);
 
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, dataTexture);
-
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     
-    if(Math.floor(now) % 15 === 0) {
-        telemetryElement.innerText = `> τ-flux: ${Math.sin(timeSec).toFixed(4)} | DataTexture Binding Active [${GRID_WIDTH}x${GRID_HEIGHT}]`;
+    // Update de HUD
+    if(Math.floor(now) % 10 === 0) {
+        telemetryElement.innerText = `> τ-flux: ${Math.sin(timeSec).toFixed(4)} | G-CODE active`;
     }
 
     requestAnimationFrame(render);
