@@ -76,7 +76,7 @@ const vsSource = `#version 300 es
     }
 `;
 
-// --- FRAGMENT SHADER (Geoptimaliseerd met Wireframe & Glow-limits) ---
+// --- FRAGMENT SHADER (Ragscherpe SDF & Exponentiële Gloed) ---
 const fsSource = `#version 300 es
     precision highp float;
 
@@ -88,6 +88,7 @@ const fsSource = `#version 300 es
     #define VORTEX_ANGLE_RAD 0.506145
     #define PHI 1.6180339887
 
+    // Quaternion wiskunde
     vec4 qmul(vec4 q1, vec4 q2) {
         return vec4(
             q1.x * q2.w + q1.y * q2.z - q1.z * q2.y + q1.w * q2.x,
@@ -111,7 +112,7 @@ const fsSource = `#version 300 es
         return p3.xy * z_factor;
     }
 
-    // Functie voor het tekenen van lichtgevende lijnsegmenten (De Hyperkubus-ribben)
+    // Afstand tot een lijnsegment voor de ribben
     float lineSDF(vec2 p, vec2 a, vec2 b) {
         vec2 pa = p - a, ba = b - a;
         float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
@@ -119,20 +120,22 @@ const fsSource = `#version 300 es
     }
 
     void main() {
-        vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
+        // Fix de aspect ratio zodat de tesseract niet uitrekt op brede schermen
+        vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / min(u_resolution.y, u_resolution.x);
         vec3 finalColor = vec3(0.0);
 
+        // 4D Ademhaling (90 naar 108)
         float breathScale = mix(0.90, 1.08, (sin(u_time * 2.0) + 1.0) / 2.0);
 
+        // 29-graden Vortex rotatie
         float theta = u_time * VORTEX_ANGLE_RAD;
         vec4 rotorXW = createRotor(vec3(1.0, 0.0, 0.0), theta);
         vec4 rotorYZ = createRotor(vec3(0.0, 1.0, 0.0), theta * PHI); 
 
-        // Arrays om de 16 berekende hoekpunten tijdelijk op te slaan
         vec2 projectedNodes[16];
         vec3 nodeColors[16];
 
-        // 1. BEREKEN POSITIES
+        // 1. POSITIES BEREKENEN
         for(int i = 0; i < 16; i++) {
             vec4 v = vec4(
                 float((i & 1) * 2 - 1),
@@ -145,49 +148,55 @@ const fsSource = `#version 300 es
             v = qmul(rotorXW, v);
             v = qmul(rotorYZ, v);
 
-            // Vergrote projectieschaal (veranderd van 0.4 naar 1.5)
-            projectedNodes[i] = project4Dto2D(v) * 1.5;
+            // Projectie opschalen naar scherm (aangepast naar 0.8 voor perfecte fit)
+            projectedNodes[i] = project4Dto2D(v) * 0.8;
 
-            // Kleur logica voor spiegelpunten
             if (i == 0 || i == 5 || i == 10 || i == 15) {
-                nodeColors[i] = vec3(0.0, 1.0, 0.2); // Fel groen
+                nodeColors[i] = vec3(0.0, 1.0, 0.3); // Actieve ankerpunten (Groen)
             } else {
-                nodeColors[i] = vec3(0.0, 0.8, 1.0); // VORTEX Cyaan
+                nodeColors[i] = vec3(0.0, 0.7, 1.0); // Passieve nodes (Cyaan)
             }
         }
 
-        // 2. TEKEN RIBBEN (Wireframe via Hamming Distance)
+        // 2. RIBBEN TEKENEN (Hamming Afstand = 1)
         for(int i = 0; i < 16; i++) {
             for(int j = i + 1; j < 16; j++) {
-                // Bitwise XOR: Verbind alleen nodes die exact 1 bit verschillen
                 int diff = i ^ j;
+                // Verbind alleen nodes die exact 1 bit verschillen (1, 2, 4 of 8)
                 if(diff == 1 || diff == 2 || diff == 4 || diff == 8) {
                     float lDist = lineSDF(uv, projectedNodes[i], projectedNodes[j]);
-                    // Begrensde gloed met epsilon om uitwaseming te voorkomen
-                    float lineGlow = 0.001 / (lDist * lDist + 0.0001);
-                    finalColor += vec3(0.0, 0.4, 0.7) * lineGlow;
+                    
+                    // Ragscherpe kern van de lijn
+                    float core = 1.0 - smoothstep(0.001, 0.004, lDist);
+                    // Gecontroleerde exponentiële gloed (voorkomt overbelichting)
+                    float halo = exp(-lDist * 35.0) * 0.4;
+                    
+                    finalColor += vec3(0.0, 0.6, 0.9) * core;
+                    finalColor += vec3(0.0, 0.3, 0.7) * halo;
                 }
             }
         }
 
-        // 3. TEKEN KNOOPPUNTEN
+        // 3. KNOOPPUNTEN TEKENEN
         for(int i = 0; i < 16; i++) {
             float nDist = length(uv - projectedNodes[i]);
             
-            // Harde kern
-            float core = smoothstep(0.015, 0.0, nDist);
-            // Zachte, gecontroleerde gloed
-            float glow = 0.002 / (nDist * nDist + 0.001);
+            // Scherpe stip
+            float core = 1.0 - smoothstep(0.008, 0.015, nDist);
+            // Zachte gloed
+            float halo = exp(-nDist * 25.0) * 0.6;
             
-            finalColor += nodeColors[i] * (core + glow);
+            finalColor += nodeColors[i] * core;
+            finalColor += nodeColors[i] * halo * 0.5;
         }
 
-        // Subtiel vignet-effect op de achtergrond voor diepte
-        float vignette = 1.0 - length(uv) * 0.4;
+        // Subtiel achtergrond vignet voor diepte
+        float vignette = 1.0 - length(uv) * 0.6;
         fragColor = vec4(finalColor * vignette, 1.0);
     }
 `;
 
+// --- Shader Compiler Helper ---
 function loadShader(gl, type, source) {
     const shader = gl.createShader(type);
     gl.shaderSource(shader, source);
@@ -200,6 +209,7 @@ function loadShader(gl, type, source) {
     return shader;
 }
 
+// Compileer het Shader Programma
 const vertexShader = loadShader(gl, gl.VERTEX_SHADER, vsSource);
 const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, fsSource);
 const shaderProgram = gl.createProgram();
@@ -207,34 +217,50 @@ gl.attachShader(shaderProgram, vertexShader);
 gl.attachShader(shaderProgram, fragmentShader);
 gl.linkProgram(shaderProgram);
 
-const positions = new Float32Array([-1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0, -1.0]);
+if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+    console.error('Shader link error:', gl.getProgramInfoLog(shaderProgram));
+}
+
+// --- Geometrie (Full Screen Quad) ---
+const positions = new Float32Array([
+    -1.0,  1.0,
+    -1.0, -1.0,
+     1.0,  1.0,
+     1.0, -1.0,
+]);
 const positionBuffer = gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
 gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
 
-const posAttr = gl.getAttribLocation(shaderProgram, 'aVertexPosition');
-gl.enableVertexAttribArray(posAttr);
-gl.vertexAttribPointer(posAttr, 2, gl.FLOAT, false, 0, 0);
+const positionAttributeLocation = gl.getAttribLocation(shaderProgram, 'aVertexPosition');
+gl.enableVertexAttribArray(positionAttributeLocation);
+gl.vertexAttribPointer(positionAttributeLocation, 2, gl.FLOAT, false, 0, 0);
 
+// --- Uniform Locaties ---
 const resolutionLocation = gl.getUniformLocation(shaderProgram, 'u_resolution');
 const timeLocation = gl.getUniformLocation(shaderProgram, 'u_time');
+
 gl.useProgram(shaderProgram);
 
+// --- Event Listeners ---
 window.addEventListener('resize', () => {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
     gl.viewport(0, 0, canvas.width, canvas.height);
 });
 
+// --- De Render Loop ---
 const telemetryElement = document.getElementById('telemetry');
 
 function render(now) {
     const timeSec = now * 0.001;
+
     gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
     gl.uniform1f(timeLocation, timeSec);
 
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     
+    // Dynamische Telemetrie Update voor de UI
     if(Math.floor(now) % 15 === 0) {
         telemetryElement.innerHTML = `> OMNI-BRIDGE: SYNC<br>> 4D SCHAAL: <span class="highlight">${(Math.sin(timeSec * 2.0) * 0.09 + 0.99).toFixed(3)}</span><br>> WIREFRAME: HAMMING DISTANCE ACTIEF`;
     }
