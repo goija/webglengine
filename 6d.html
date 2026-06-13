@@ -53,19 +53,19 @@
     <div id="overlay">
         <h1>VORTEX // 6D HEXERACT</h1>
         <p>64 Knooppunten | 192 Ruimtetijd-Assen<br>
-        6D naar 2D Stereografische Cascade<br>
-        Asymmetrische 29° Torsie ($\tau$)</p>
+        6D $\rightarrow$ 2D Stereografische Cascade<br>
+        Palace Sets (Kleurcodering) Actief</p>
         <div class="data-stream" id="telemetry">> INITIALISEREN...</div>
     </div>
 
 <script>
 // ==========================================
-// DEEL 1: 6D WISKUNDE & DATASTRUCTUUR (CPU)
+// DEEL 1: 6D WISKUNDE & DATASTRUCTUUR
 // ==========================================
 const VORTEX_ANGLE_RAD = 0.506145; // 29 graden
 const PHI = 1.6180339887;
 
-// Genereer de 64 basispunten van de 6D Hyperkubus (-1 of 1)
+// Genereer de 64 basispunten (Hexagrammen in 6D coördinaten)
 const baseNodes = [];
 for (let i = 0; i < 64; i++) {
     baseNodes.push([
@@ -83,14 +83,24 @@ const edges = [];
 for (let i = 0; i < 64; i++) {
     for (let j = i + 1; j < 64; j++) {
         let diff = i ^ j;
-        // Controleer of het verschil een macht van 2 is (slechts 1 bit verschil)
         if (diff === 1 || diff === 2 || diff === 4 || diff === 8 || diff === 16 || diff === 32) {
             edges.push([i, j]);
         }
     }
 }
 
-// Rotatie in een specifiek 6D-vlak
+// Kleurenpalet gebaseerd op de 8 Palace Sets (Buitenste Trigram: bit 3,4,5)
+const palaceColors = [
+    '#1E90FF', // 0: Palace 1 (Water/Blauw)
+    '#FF4500', // 1: Palace 2 (Vuur/Rood)
+    '#2E8B57', // 2: Palace 3 (Hout/Groen)
+    '#DAA520', // 3: Palace 4 (Aarde/Geel)
+    '#00FFFF', // 4: Palace 5 (Cyaan)
+    '#FF00FF', // 5: Palace 6 (Magenta)
+    '#FFFFFF', // 6: Palace 7 (Metaal/Wit)
+    '#8A2BE2'  // 7: Palace 8 (Paars)
+];
+
 function rotate6D(v, planeA, planeB, angle) {
     const cosA = Math.cos(angle);
     const sinA = Math.sin(angle);
@@ -100,27 +110,23 @@ function rotate6D(v, planeA, planeB, angle) {
     return result;
 }
 
-// Sequentiële Stereografische Projectie (6D -> 5D -> 4D -> 3D -> 2D)
+// Sequentiële Cascade Projectie
 function project6Dto2D(v6, distance) {
-    // 6D naar 5D
     let w5 = 1.0 / (distance - v6[5]);
-    let v5 = [v6[0] * w5, v6[1] * w5, v6[2] * w5, v6[3] * w5, v6[4] * w5];
+    let v5 = [v6[0]*w5, v6[1]*w5, v6[2]*w5, v6[3]*w5, v6[4]*w5];
     
-    // 5D naar 4D
     let w4 = 1.0 / (distance - v5[4]);
-    let v4 = [v5[0] * w4, v5[1] * w4, v5[2] * w4, v5[3] * w4];
+    let v4 = [v5[0]*w4, v5[1]*w4, v5[2]*w4, v5[3]*w4];
     
-    // 4D naar 3D
     let w3 = 1.0 / (distance - v4[3]);
-    let v3 = [v4[0] * w3, v4[1] * w3, v4[2] * w3];
+    let v3 = [v4[0]*w3, v4[1]*w3, v4[2]*w3];
     
-    // 3D naar 2D
     let w2 = 1.0 / (distance - v3[2]);
-    return { x: v3[0] * w2, y: v3[1] * w2 };
+    return { x: v3[0]*w2, y: v3[1]*w2 };
 }
 
 // ==========================================
-// DEEL 2: CANVAS 2D RENDER ENGINE
+// DEEL 2: CANVAS RENDER ENGINE
 // ==========================================
 const canvas = document.getElementById('vortexCanvas');
 const ctx = canvas.getContext('2d');
@@ -131,7 +137,7 @@ function resize() {
     ch = canvas.height = window.innerHeight;
     cx = cw / 2;
     cy = ch / 2;
-    scale = Math.min(cw, ch) * 25; // Visuele schaal voor de 6D projectie
+    scale = Math.min(cw, ch) * 45; // Schaal aangepast voor de gecorrigeerde veilige afstand
 }
 window.addEventListener('resize', resize);
 resize();
@@ -142,34 +148,27 @@ resize();
 const telemetryElement = document.getElementById('telemetry');
 
 function render(now) {
-    const timeSec = now * 0.0005; // Vertraagde tijd voor stabiele observatie
+    const timeSec = now * 0.0003; 
 
-    // Wis het canvas met een subtiele motion blur
-    ctx.fillStyle = 'rgba(2, 3, 5, 0.3)';
+    // Motion Blur Trail
+    ctx.fillStyle = 'rgba(2, 3, 5, 0.4)';
     ctx.fillRect(0, 0, cw, ch);
 
-    // 6D Ademhaling (Uitdijing en compressie van het manifold)
-    const breathScale = 1.0 + (Math.sin(timeSec * 3.0) * 0.05);
-
-    // Bepaal de dynamische projectie-afstand
-    const projDistance = 1.8 + (Math.cos(timeSec) * 0.1);
+    // Veilige Projectie Afstand (Voorkomt de Singulariteit! Moet altijd > 2.45 zijn)
+    const projDistance = 3.5 + (Math.cos(timeSec * 0.5) * 0.5);
 
     const projectedNodes = [];
 
-    // Bereken en roteer alle 64 hoekpunten
+    // Bereken de 64 knooppunten
     for (let i = 0; i < 64; i++) {
         let node = [...baseNodes[i]];
         
-        // Pas schaal toe
-        for(let d=0; d<6; d++) node[d] *= breathScale;
+        // Torsie in verschillende 6D vlakken
+        node = rotate6D(node, 0, 1, timeSec * VORTEX_ANGLE_RAD); // Vlak 1
+        node = rotate6D(node, 2, 3, timeSec * VORTEX_ANGLE_RAD * PHI); // Vlak 2
+        node = rotate6D(node, 4, 5, timeSec * 0.9); // Vlak 3
+        node = rotate6D(node, 0, 5, timeSec * 0.4); // Dwarsvlak
 
-        // Roteer door 3 onafhankelijke 6D-vlakken via de VORTEX-as
-        node = rotate6D(node, 0, 1, timeSec * VORTEX_ANGLE_RAD); // X-Y
-        node = rotate6D(node, 2, 3, timeSec * VORTEX_ANGLE_RAD * PHI); // Z-W
-        node = rotate6D(node, 4, 5, timeSec * 0.8); // V-U (Extra dimensie torsie)
-        node = rotate6D(node, 0, 5, timeSec * 0.3); // Kruisvlak torsie
-
-        // Projecteer de 6D vector naar 2D
         const p2 = project6Dto2D(node, projDistance);
         
         projectedNodes.push({
@@ -178,9 +177,9 @@ function render(now) {
         });
     }
 
-    // Teken Ribben (192 assen)
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = 'rgba(0, 150, 255, 0.4)';
+    // Teken 192 Ribben (Data-lijnen)
+    ctx.lineWidth = 0.5;
+    ctx.strokeStyle = 'rgba(0, 150, 255, 0.25)';
     ctx.beginPath();
     for (let i = 0; i < edges.length; i++) {
         const pA = projectedNodes[edges[i][0]];
@@ -190,28 +189,31 @@ function render(now) {
     }
     ctx.stroke();
 
-    // Teken Knooppunten (64 stuks)
+    // Teken 64 Knooppunten met Palace Set Kleuren
     for (let i = 0; i < 64; i++) {
+        const palaceIndex = i >> 3; // Bepaal het paleis (0-7) o.b.v. bits
+        const nodeColor = palaceColors[palaceIndex];
+
         ctx.beginPath();
-        ctx.arc(projectedNodes[i].x, projectedNodes[i].y, 2, 0, Math.PI * 2);
+        ctx.arc(projectedNodes[i].x, projectedNodes[i].y, 3, 0, Math.PI * 2);
         
-        // Highlight het grondlegger-hexagram (000000) en zijn 6 directe buren
-        if (i === 0 || i === 1 || i === 2 || i === 4 || i === 8 || i === 16 || i === 32) {
-            ctx.fillStyle = '#00ff00';
-            ctx.shadowColor = '#00ff00';
-            ctx.shadowBlur = 10;
-            ctx.arc(projectedNodes[i].x, projectedNodes[i].y, 3, 0, Math.PI * 2); // Maak iets groter
-        } else {
-            ctx.fillStyle = '#00ffff';
-            ctx.shadowColor = '#00ffff';
-            ctx.shadowBlur = 5;
-        }
+        ctx.fillStyle = nodeColor;
+        ctx.shadowColor = nodeColor;
+        ctx.shadowBlur = 12;
         ctx.fill();
+
+        // Extra highlight voor de 8 Grondleggers (0, 8, 16, 24, 32, 40, 48, 56)
+        if (i % 8 === 0) {
+            ctx.beginPath();
+            ctx.arc(projectedNodes[i].x, projectedNodes[i].y, 5, 0, Math.PI * 2);
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fill();
+        }
     }
 
-    // Telemetrie Update
+    // Telemetrie
     if (Math.floor(now) % 15 === 0) {
-        telemetryElement.innerHTML = `> OMNI-BRIDGE: 6D SYNC<br>> HAMMING ASSEN: 192 ACTIEF<br>> PROJ. AFSTAND: <span class="highlight">${projDistance.toFixed(3)}</span>`;
+        telemetryElement.innerHTML = `> OMNI-BRIDGE: 6D SYNC VERGRENDELD<br>> SINGULARITEIT PREVENTIE: ACTIEF<br>> PROJ. AFSTAND: <span class="highlight">${projDistance.toFixed(3)}</span>`;
     }
 
     requestAnimationFrame(render);
