@@ -3,264 +3,242 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VORTEX — Palace Set Matrix & Gray-Code Router</title>
+    <title>VORTEX // GLSL Torus-Engine & 29° Manifold</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            background-color: #0c0f12;
-            color: #e2e8f0;
-            font-family: 'Monaco', 'Consolas', 'Ubuntu Mono', monospace;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            overflow: hidden;
-        }
-        #dashboard-container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            background: radial-gradient(circle at center, #13181e 0%, #080a0d 100%);
-            border: 1px solid #1e293b;
-            border-radius: 12px;
-            padding: 24px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.7);
-        }
-        header {
-            margin-bottom: 20px;
-            text-align: center;
-            border-bottom: 1px solid #1e293b;
-            width: 100%;
-            padding-bottom: 12px;
-        }
-        h1 {
-            font-size: 1.2rem;
-            letter-spacing: 2px;
+            background-color: #050505;
             color: #38bdf8;
-            text-transform: uppercase;
+            font-family: 'Monaco', 'Consolas', 'Ubuntu Mono', monospace;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
         }
-        p.subtitle {
-            font-size: 0.8rem;
-            color: #64748b;
-            margin-top: 4px;
+        #glcanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
         }
-        canvas {
-            background-color: #090d11;
+        #overlay {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 2;
+            background: rgba(10, 15, 20, 0.85);
+            padding: 15px 20px;
             border: 1px solid #1e293b;
             border-radius: 8px;
-            cursor: crosshair;
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+            pointer-events: none; /* Laat muisklikken door naar het canvas */
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            backdrop-filter: blur(4px);
         }
-        footer {
-            margin-top: 15px;
-            font-size: 0.75rem;
-            color: #475569;
-            text-align: center;
-            width: 100%;
-        }
+        h1 { font-size: 1.2rem; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 5px; }
+        p { font-size: 0.8rem; color: #64748b; line-height: 1.4; }
+        .data-stream { color: #00FF00; margin-top: 10px; font-size: 0.75rem; }
     </style>
 </head>
 <body>
 
-<div id="dashboard-container">
-    <header>
-        <h1>VORTEX // 6D Routing Telemetrie</h1>
-        <p class="subtitle">Klik op een Wuxing-knoop om het Gray-code datapakket te verzenden</p>
-    </header>
+    <canvas id="glcanvas"></canvas>
 
-    <canvas id="vortexCanvas" width="500" height="500"></canvas>
-
-    <footer>
-        <span>Ijktransport-algebra & Glitch-vrije Gray-Code Routering actief</span>
-    </footer>
-</div>
+    <div id="overlay">
+        <h1>VORTEX // WebGL Engine</h1>
+        <p>18x13 Faseruimte | Torus Topologie<br>
+        29° Asymmetrische Torsie ($\tau$)</p>
+        <div class="data-stream" id="telemetry">> INIT: u_time sync...</div>
+    </div>
 
 <script>
-const canvas = document.getElementById('vortexCanvas');
-const ctx = canvas.getContext('2d');
+const canvas = document.getElementById('glcanvas');
+const gl = canvas.getContext('webgl2');
 
-// Wuxing Kleurenpalet
-const WUXING_COLORS = {
-    'WOOD':  '#2E8B57', 
-    'FIRE':  '#FF4500', 
-    'EARTH': '#DAA520', 
-    'METAL': '#D3D3D3', 
-    'WATER': '#1E90FF'  
-};
-
-const INTERACTION_STYLES = {
-    'SHENG': { color: 'rgba(46, 139, 87, 0.6)', dash: [] },        
-    'KE':    { color: 'rgba(255, 69, 0, 0.8)',  dash: [4, 4] },    
-    'SAME':  { color: 'rgba(100, 149, 237, 0.4)', dash: [] }       
-};
-
-// Data Modellering: Palace Set (Hexagram structuur via 6-bit integers)
-const palaceNodes = [
-    { val: 0x1B, wuxing: 'METAL' },
-    { val: 0x1A, wuxing: 'WATER' },
-    { val: 0x18, wuxing: 'WOOD' }, 
-    { val: 0x1C, wuxing: 'FIRE' }, 
-    { val: 0x14, wuxing: 'EARTH' },
-    { val: 0x04, wuxing: 'METAL' },
-    { val: 0x0C, wuxing: 'WATER' }, // Uun
-    { val: 0x24, wuxing: 'WOOD' }   // Gui
-];
-
-// Globale variabele voor de telemetrie-animatie
-let travelingDot = null;
-
-function getWuxingInteraction(w1, w2) {
-    if (w1 === w2) return 'SAME';
-    const shengRules = { 'WOOD':'FIRE', 'FIRE':'EARTH', 'EARTH':'METAL', 'METAL':'WATER', 'WATER':'WOOD' };
-    if (shengRules[w1] === w2 || shengRules[w2] === w1) return 'SHENG';
-    return 'KE'; 
+if (!gl) {
+    alert('WebGL2 wordt niet ondersteund in deze browser.');
 }
 
-// --- STAP 1: De Event Listener (Activeert de Transmissie) ---
-canvas.addEventListener('click', (event) => {
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = event.clientX - rect.left;
-    const mouseY = event.clientY - rect.top;
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2;
-    const R = 150; 
+// Pas canvas aan naar de volledige venstergrootte
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
 
-    palaceNodes.forEach((node, i) => {
-        const theta = i * (Math.PI / 4);
-        const nodeX = centerX + R * Math.cos(theta);
-        const nodeY = centerY + R * Math.sin(theta);
+// --- VERTEX SHADER (Basis Passthrough) ---
+const vsSource = `#version 300 es
+    in vec4 aVertexPosition;
+    void main() {
+        gl_Position = aVertexPosition;
+    }
+`;
 
-        if (Math.hypot(mouseX - nodeX, mouseY - nodeY) < 18) {
-            
-            // Zoek de complementaire bestemming (Polaire Inversie ^ 0x3F)
-            const complementVal = node.val ^ 0x3F;
-            const targetIndex = palaceNodes.findIndex(n => n.val === complementVal);
+// --- FRAGMENT SHADER (De VORTEX Engine met uitbreidingen) ---
+const fsSource = `#version 300 es
+    precision highp float;
 
-            if (targetIndex !== -1 && !travelingDot) {
-                // Gray-code Transformatie voor glitch-vrije routering
-                const grayCodeVal = node.val ^ (node.val >> 1);
-                const targetTheta = targetIndex * (Math.PI / 4);
+    uniform vec2 u_resolution;
+    uniform float u_time;
+    uniform vec2 u_mouse; // Observer interactie
+    
+    out vec4 fragColor;
 
-                // Initialiseer het reizende datapakket
-                travelingDot = {
-                    startX: nodeX,
-                    startY: nodeY,
-                    targetX: centerX + R * Math.cos(targetTheta),
-                    targetY: centerY + R * Math.sin(targetTheta),
-                    progress: 0,
-                    grayCode: grayCodeVal,
-                    wuxing: node.wuxing
-                };
-            }
-        }
-    });
-});
+    #define PI 3.14159265359
+    #define VORTEX_ANGLE_RAD 0.506145 // 29 graden WTC-as
 
-// --- STAP 2: De Main Render Loop ---
-function renderVortexOctagon(timestamp) {
-    const width = canvas.width;
-    const height = canvas.height;
-    const centerX = width / 2;
-    const centerY = height / 2;
-    const R = 150; 
-
-    ctx.clearRect(0, 0, width, height);
-
-    // Teken de statische transitie-banen (Ijkveld)
-    palaceNodes.forEach((node, i) => {
-        const theta1 = i * (Math.PI / 4);
-        const x1 = centerX + R * Math.cos(theta1);
-        const y1 = centerY + R * Math.sin(theta1);
-
-        const complementVal = node.val ^ 0x3F;
-        const complementIndex = palaceNodes.findIndex(n => n.val === complementVal);
-
-        if (complementIndex !== -1 && complementIndex > i) {
-            const theta2 = complementIndex * (Math.PI / 4);
-            const x2 = centerX + R * Math.cos(theta2);
-            const y2 = centerY + R * Math.sin(theta2);
-
-            const interactionType = getWuxingInteraction(node.wuxing, palaceNodes[complementIndex].wuxing);
-            const style = INTERACTION_STYLES[interactionType];
-
-            ctx.beginPath();
-            ctx.moveTo(x1, y1);
-            ctx.lineTo(x2, y2);
-
-            if (interactionType === 'KE') {
-                const pulse = (Math.sin(timestamp * 0.005) + 1) / 2;
-                ctx.strokeStyle = `rgba(255, 69, 0, ${0.3 + pulse * 0.5})`;
-                ctx.lineWidth = 2.5;
-            } else {
-                ctx.strokeStyle = style.color;
-                ctx.lineWidth = 1.5;
-            }
-
-            ctx.setLineDash(style.dash);
-            ctx.stroke();
-        }
-    });
-
-    // Render actieve data-transmissie (Kinetisch Foton)
-    if (travelingDot) {
-        travelingDot.progress += 0.015; 
-
-        if (travelingDot.progress > 1) {
-            travelingDot = null; 
-        } else {
-            const currentX = travelingDot.startX + (travelingDot.targetX - travelingDot.startX) * travelingDot.progress;
-            const currentY = travelingDot.startY + (travelingDot.targetY - travelingDot.startY) * travelingDot.progress;
-
-            ctx.beginPath();
-            ctx.arc(currentX, currentY, 6, 0, 2 * Math.PI);
-            ctx.fillStyle = '#FFFFFF'; 
-
-            ctx.shadowBlur = 15;
-            ctx.shadowColor = WUXING_COLORS[travelingDot.wuxing];
-            ctx.fill();
-
-            ctx.shadowBlur = 0; 
-            ctx.fillStyle = '#00FF00'; 
-            ctx.font = 'bold 12px monospace';
-
-            const hexAddress = travelingDot.grayCode.toString(16).padStart(2, '0').toUpperCase();
-            ctx.fillText(`[G-CODE: 0x${hexAddress}]`, currentX + 12, currentY - 12);
-        }
+    // Wuxing Ijkveld
+    vec3 getWuxingColor(int element) {
+        if(element == 0) return vec3(0.18, 0.54, 0.34); // Hout
+        if(element == 1) return vec3(1.00, 0.27, 0.00); // Vuur
+        if(element == 2) return vec3(0.85, 0.64, 0.12); // Aarde
+        if(element == 3) return vec3(0.82, 0.82, 0.82); // Metaal
+        return vec3(0.11, 0.56, 1.00);                  // Water
     }
 
-    // Teken de fysieke Wuxing-knooppunten
-    ctx.setLineDash([]); 
-    palaceNodes.forEach((node, i) => {
-        const theta = i * (Math.PI / 4);
-        const x = centerX + R * Math.cos(theta);
-        const y = centerY + R * Math.sin(theta);
+    void main() {
+        // Normaliseer coördinaten
+        vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+        
+        // Inverteer Y-as voor de muis, zodat het overeenkomt met de schermcoördinaten
+        vec2 mouseUV = vec2(u_mouse.x, u_resolution.y - u_mouse.y) / u_resolution.xy;
 
-        ctx.beginPath();
-        ctx.arc(x, y, 12, 0, 2 * Math.PI);
-        ctx.fillStyle = '#090d11';
-        ctx.fill();
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = WUXING_COLORS[node.wuxing];
-        ctx.stroke();
+        // Observer Effect: De nabijheid van de muis beïnvloedt subtiel de rotatiehoek (ruimtetijd vervorming)
+        float dynamicVortex = VORTEX_ANGLE_RAD + (mouseUV.x - 0.5) * 0.1;
 
-        ctx.beginPath();
-        ctx.arc(x, y, 6, 0, 2 * Math.PI);
-        ctx.fillStyle = WUXING_COLORS[node.wuxing];
-        ctx.fill();
+        // Rotatiematrix
+        mat2 vortexRot = mat2(cos(dynamicVortex), -sin(dynamicVortex),
+                              sin(dynamicVortex),  cos(dynamicVortex));
 
-        ctx.fillStyle = '#e2e8f0';
-        ctx.font = '10px monospace';
-        const lx = x + 24 * Math.cos(theta) - 12;
-        const ly = y + 24 * Math.sin(theta) + 4;
-        ctx.fillText(`0x${node.val.toString(16).toUpperCase().padStart(2, '0')}`, lx, ly);
-    });
+        // 18x13 Raster
+        vec2 gridUV = vortexRot * (uv * vec2(18.0, 13.0));
 
-    requestAnimationFrame(renderVortexOctagon);
+        // Torus Topologie met organische oscillatie (Zandloper-golf)
+        gridUV += vec2(sin(u_time * 0.5 + gridUV.y), cos(u_time * 0.3 + gridUV.x)) * 0.05;
+        
+        vec2 cellUV = fract(gridUV);
+        vec2 cellIndex = floor(gridUV);
+
+        // Bepaal element
+        int element = int(mod(cellIndex.x * 7.0 + cellIndex.y * 3.0, 5.0));
+        vec3 baseColor = getWuxingColor(element);
+
+        // Muis/Waarnemer frictie
+        float distToMouse = length(uv - mouseUV);
+        float observerPressure = smoothstep(0.15, 0.0, distToMouse) * 2.0;
+
+        // Lokale Torsie
+        float torsionX = sin(u_time * 2.0 + cellIndex.x * 0.8);
+        float torsionY = cos(u_time * 1.5 + cellIndex.y * 1.2);
+        
+        // Torsie piekt wanneer golven overlappen, of wanneer de waarnemer ingrijpt
+        float torsion = torsionX * torsionY + observerPressure; 
+
+        // Ke-frictie activatie (rode gloed)
+        float frictionPulse = smoothstep(0.4, 0.9, abs(torsion));
+        vec3 keHighlight = vec3(1.0, 0.1, 0.0) * frictionPulse;
+
+        // Voronoi cel-gloed
+        float edgeDist = length(cellUV - vec2(0.5));
+        float nodeGlow = smoothstep(0.5, 0.1, edgeDist);
+
+        // Samenvoegen van de structuren
+        vec3 finalColor = mix(baseColor * nodeGlow, keHighlight, frictionPulse * 0.7);
+
+        // Reizende Gray-code fotonen over het raster
+        float sparkSpeed = u_time * 4.0;
+        float sparkX = smoothstep(0.95, 1.0, sin(sparkSpeed + cellIndex.x));
+        float sparkY = smoothstep(0.95, 1.0, cos(sparkSpeed + cellIndex.y));
+        float dataSpark = max(sparkX, sparkY);
+        
+        // Groene injectie op de pieken
+        finalColor += vec3(0.0, 1.0, 0.2) * dataSpark * 0.6;
+
+        fragColor = vec4(finalColor, 1.0);
+    }
+`;
+
+// --- Shader Compiler Functies ---
+function loadShader(gl, type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        console.error('Shader compile error:', gl.getShaderInfoLog(shader));
+        gl.deleteShader(shader);
+        return null;
+    }
+    return shader;
 }
 
-// Initialiseer de animatie
-requestAnimationFrame(renderVortexOctagon);
+const vertexShader = loadShader(gl, gl.VERTEX_SHADER, vsSource);
+const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, fsSource);
+
+const shaderProgram = gl.createProgram();
+gl.attachShader(shaderProgram, vertexShader);
+gl.attachShader(shaderProgram, fragmentShader);
+gl.linkProgram(shaderProgram);
+
+if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+    console.error('Shader link error:', gl.getProgramInfoLog(shaderProgram));
+}
+
+// --- Geometrie (Full Screen Quad) ---
+const positions = new Float32Array([
+    -1.0,  1.0,
+    -1.0, -1.0,
+     1.0,  1.0,
+     1.0, -1.0,
+]);
+const positionBuffer = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+
+const positionAttributeLocation = gl.getAttribLocation(shaderProgram, 'aVertexPosition');
+gl.enableVertexAttribArray(positionAttributeLocation);
+gl.vertexAttribPointer(positionAttributeLocation, 2, gl.FLOAT, false, 0, 0);
+
+// --- Uniform Locaties ---
+const resolutionLocation = gl.getUniformLocation(shaderProgram, 'u_resolution');
+const timeLocation = gl.getUniformLocation(shaderProgram, 'u_time');
+const mouseLocation = gl.getUniformLocation(shaderProgram, 'u_mouse');
+
+gl.useProgram(shaderProgram);
+
+// --- Event Listeners ---
+let mouseX = canvas.width / 2;
+let mouseY = canvas.height / 2;
+
+window.addEventListener('resize', () => {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    gl.viewport(0, 0, canvas.width, canvas.height);
+});
+
+canvas.addEventListener('mousemove', (e) => {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+});
+
+// --- De Render Loop ---
+const telemetryElement = document.getElementById('telemetry');
+function render(now) {
+    const timeSec = now * 0.001;
+
+    gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
+    gl.uniform1f(timeLocation, timeSec);
+    gl.uniform2f(mouseLocation, mouseX, mouseY);
+
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    
+    // Update de HUD
+    if(Math.floor(now) % 10 === 0) {
+        telemetryElement.innerText = `> τ-flux: ${Math.sin(timeSec).toFixed(4)} | G-CODE active`;
+    }
+
+    requestAnimationFrame(render);
+}
+
+requestAnimationFrame(render);
 </script>
 
 </body>
