@@ -18,7 +18,7 @@
             margin: 0;
             cursor: crosshair;
         }
-        #glcanvas {
+        canvas {
             position: absolute;
             top: 0;
             left: 0;
@@ -50,156 +50,76 @@
 </head>
 <body>
 
-    <canvas id="glcanvas"></canvas>
+    <canvas id="vortexCanvas"></canvas>
 
-    <div id="overlay" id="ui-panel">
+    <div id="overlay">
         <h1>VORTEX // OMNI-BRIDGE</h1>
-        <p>4D Stereografische Projectie<br>
+        <p>4D Stereografische Projectie (CPU Render)<br>
+        Quaternion Kinematica (q = w+xi+yj+zk)<br>
         Archaeoakoestische Auralisatie (54Hz)<br>
-        <span id="click-warning" class="warning">> KLIK OP HET SCHERM OM AUDIO TE STARTEN</span></p>
+        <span id="click-warning" class="warning">> KLIK OP HET SCHERM OM ENGINE TE STARTEN</span></p>
         <div class="data-stream" id="telemetry">> SYSTEEM STANDBY</div>
     </div>
 
 <script>
 // ==========================================
-// DEEL 1: WEBGL VISUELE ENGINE
+// DEEL 1: 4D QUATERNION WISKUNDE (CPU)
 // ==========================================
-const canvas = document.getElementById('glcanvas');
-const gl = canvas.getContext('webgl2');
+const VORTEX_ANGLE_RAD = 0.506145; // 29 graden
+const PHI = 1.6180339887;
 
-if (!gl) { alert('WebGL2 wordt niet ondersteund.'); }
-
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
-
-const vsSource = `#version 300 es
-    in vec4 aVertexPosition;
-    void main() { gl_Position = aVertexPosition; }
-`;
-
-const fsSource = `#version 300 es
-    precision highp float;
-    uniform vec2 u_resolution;
-    uniform float u_time;
-    out vec4 fragColor;
-
-    #define VORTEX_ANGLE_RAD 0.506145
-    #define PHI 1.6180339887
-
-    vec4 qmul(vec4 q1, vec4 q2) {
-        return vec4(
-            q1.x * q2.w + q1.y * q2.z - q1.z * q2.y + q1.w * q2.x,
-            -q1.x * q2.z + q1.y * q2.w + q1.z * q2.x + q1.w * q2.y,
-            q1.x * q2.y - q1.y * q2.x + q1.z * q2.w + q1.w * q2.z,
-            -q1.x * q2.x - q1.y * q2.y - q1.z * q2.z + q1.w * q2.w
-        );
-    }
-
-    vec4 createRotor(vec3 axis, float angle) {
-        vec3 a = normalize(axis);
-        float s = sin(angle / 2.0);
-        return vec4(a.x * s, a.y * s, a.z * s, cos(angle / 2.0));
-    }
-
-    vec2 project4Dto2D(vec4 p4) {
-        float distance = 3.0; 
-        float w_factor = 1.0 / (distance - p4.w); 
-        vec3 p3 = p4.xyz * w_factor; 
-        float z_factor = 1.0 / (distance - p3.z); 
-        return p3.xy * z_factor;
-    }
-
-    float lineSDF(vec2 p, vec2 a, vec2 b) {
-        vec2 pa = p - a, ba = b - a;
-        float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
-        return length(pa - ba * h);
-    }
-
-    void main() {
-        vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / min(u_resolution.y, u_resolution.x);
-        vec3 finalColor = vec3(0.0);
-
-        // 4D Ademhaling
-        float breathScale = mix(0.90, 1.08, (sin(u_time * 2.0) + 1.0) / 2.0);
-
-        // Rotatie
-        float theta = u_time * VORTEX_ANGLE_RAD;
-        vec4 rotorXW = createRotor(vec3(1.0, 0.0, 0.0), theta);
-        vec4 rotorYZ = createRotor(vec3(0.0, 1.0, 0.0), theta * PHI); 
-
-        vec2 projectedNodes[16];
-        vec3 nodeColors[16];
-
-        for(int i = 0; i < 16; i++) {
-            vec4 v = vec4(
-                float((i & 1) * 2 - 1),
-                float(((i >> 1) & 1) * 2 - 1),
-                float(((i >> 2) & 1) * 2 - 1),
-                float(((i >> 3) & 1) * 2 - 1)
-            );
-
-            v *= breathScale;
-            v = qmul(rotorXW, v);
-            v = qmul(rotorYZ, v);
-            projectedNodes[i] = project4Dto2D(v) * 0.8;
-
-            if (i == 0 || i == 5 || i == 10 || i == 15) {
-                nodeColors[i] = vec3(0.0, 1.0, 0.3); 
-            } else {
-                nodeColors[i] = vec3(0.0, 0.7, 1.0); 
-            }
-        }
-
-        // Ribben
-        for(int i = 0; i < 16; i++) {
-            for(int j = i + 1; j < 16; j++) {
-                if((i ^ j) == 1 || (i ^ j) == 2 || (i ^ j) == 4 || (i ^ j) == 8) {
-                    float lDist = lineSDF(uv, projectedNodes[i], projectedNodes[j]);
-                    float core = 1.0 - smoothstep(0.001, 0.004, lDist);
-                    float halo = exp(-lDist * 35.0) * 0.4;
-                    finalColor += vec3(0.0, 0.6, 0.9) * core + vec3(0.0, 0.3, 0.7) * halo;
-                }
-            }
-        }
-
-        // Knooppunten
-        for(int i = 0; i < 16; i++) {
-            float nDist = length(uv - projectedNodes[i]);
-            float core = 1.0 - smoothstep(0.008, 0.015, nDist);
-            float halo = exp(-nDist * 25.0) * 0.6;
-            finalColor += nodeColors[i] * core + nodeColors[i] * halo * 0.5;
-        }
-
-        fragColor = vec4(finalColor * (1.0 - length(uv) * 0.6), 1.0);
-    }
-`;
-
-function loadShader(gl, type, source) {
-    const shader = gl.createShader(type);
-    gl.shaderSource(shader, source);
-    gl.compileShader(shader);
-    return shader;
+function qmul(q1, q2) {
+    return {
+        x: q1.x * q2.w + q1.y * q2.z - q1.z * q2.y + q1.w * q2.x,
+        y: -q1.x * q2.z + q1.y * q2.w + q1.z * q2.x + q1.w * q2.y,
+        z: q1.x * q2.y - q1.y * q2.x + q1.z * q2.w + q1.w * q2.z,
+        w: -q1.x * q2.x - q1.y * q2.y - q1.z * q2.z + q1.w * q2.w
+    };
 }
 
-const shaderProgram = gl.createProgram();
-gl.attachShader(shaderProgram, loadShader(gl, gl.VERTEX_SHADER, vsSource));
-gl.attachShader(shaderProgram, loadShader(gl, gl.FRAGMENT_SHADER, fsSource));
-gl.linkProgram(shaderProgram);
+function createRotor(x, y, z, angle) {
+    const s = Math.sin(angle / 2.0);
+    return { x: x * s, y: y * s, z: z * s, w: Math.cos(angle / 2.0) };
+}
 
-const positionBuffer = gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0, -1.0]), gl.STATIC_DRAW);
+function project4Dto2D(p4) {
+    const distance = 3.0;
+    const w_factor = 1.0 / (distance - p4.w);
+    const p3 = { x: p4.x * w_factor, y: p4.y * w_factor, z: p4.z * w_factor };
+    const z_factor = 1.0 / (distance - p3.z);
+    return { x: p3.x * z_factor, y: p3.y * z_factor };
+}
 
-const posAttr = gl.getAttribLocation(shaderProgram, 'aVertexPosition');
-gl.enableVertexAttribArray(posAttr);
-gl.vertexAttribPointer(posAttr, 2, gl.FLOAT, false, 0, 0);
-
-const resolutionLocation = gl.getUniformLocation(shaderProgram, 'u_resolution');
-const timeLocation = gl.getUniformLocation(shaderProgram, 'u_time');
-gl.useProgram(shaderProgram);
+// Genereer de 16 basispunten van de Tesseract (-1 of 1)
+const baseNodes = [];
+for (let i = 0; i < 16; i++) {
+    baseNodes.push({
+        x: (i & 1) ? 1 : -1,
+        y: ((i >> 1) & 1) ? 1 : -1,
+        z: ((i >> 2) & 1) ? 1 : -1,
+        w: ((i >> 3) & 1) ? 1 : -1
+    });
+}
 
 // ==========================================
-// DEEL 2: ARCHAEOAKOESTISCHE ENGINE
+// DEEL 2: CANVAS 2D RENDER ENGINE
+// ==========================================
+const canvas = document.getElementById('vortexCanvas');
+const ctx = canvas.getContext('2d');
+let cw, ch, cx, cy, scale;
+
+function resize() {
+    cw = canvas.width = window.innerWidth;
+    ch = canvas.height = window.innerHeight;
+    cx = cw / 2;
+    cy = ch / 2;
+    scale = Math.min(cw, ch) * 0.35; // Visuele schaal
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ==========================================
+// DEEL 3: AUDIO ENGINE
 // ==========================================
 let audioCtx, masterGain, droneOsc, breathFilter;
 let isAudioInitialized = false;
@@ -211,74 +131,124 @@ function initAudio() {
     audioCtx = new AudioContext();
 
     masterGain = audioCtx.createGain();
-    masterGain.gain.value = 0.4; // Veilig basisvolume
+    masterGain.gain.value = 0.4;
     masterGain.connect(audioCtx.destination);
 
-    // De filter die de "ademhaling" nabootst
     breathFilter = audioCtx.createBiquadFilter();
     breathFilter.type = 'lowpass';
-    breathFilter.frequency.value = 100; // Startwaarde
-    breathFilter.Q.value = 4.0; // Hoge resonantie voor karakter
+    breathFilter.frequency.value = 100;
+    breathFilter.Q.value = 4.0;
     breathFilter.connect(masterGain);
 
-    // Fundamentele Drone Oscillator
     droneOsc = audioCtx.createOscillator();
-    droneOsc.type = 'sawtooth'; // Rijke harmonischen voor de filter om mee te spelen
-    droneOsc.frequency.value = 54.0; // Diepe architectonische bas
+    droneOsc.type = 'sawtooth';
+    droneOsc.frequency.value = 54.0;
     droneOsc.connect(breathFilter);
     droneOsc.start();
 
     isAudioInitialized = true;
     
-    // Update de UI
     document.getElementById('click-warning').style.display = 'none';
     document.getElementById('overlay').style.borderLeft = '3px solid #00ff00';
 }
 
 function updateAuralization(timeSec) {
     if (!isAudioInitialized || !audioCtx) return;
-
-    // 1. Koppel 4D Ademhaling (sin(t*2)) aan de Lowpass Filter Cutoff
-    // Zorgt dat het geluid 'opent' bij uitdijing en 'sluit' bij contractie
-    const breathSignal = (Math.sin(timeSec * 2.0) + 1.0) / 2.0; // 0.0 tot 1.0
-    const filterFreq = 80 + (breathSignal * 300); // Oscilleert tussen 80Hz en 380Hz
+    const breathSignal = (Math.sin(timeSec * 2.0) + 1.0) / 2.0;
+    const filterFreq = 80 + (breathSignal * 300);
     breathFilter.frequency.setTargetAtTime(filterFreq, audioCtx.currentTime, 0.1);
 
-    // 2. Koppel 29° Torsie-as aan subtiele Detune
-    // Simuleert de wrijving/het wringen van de Vortex
     const torsionSignal = Math.sin(timeSec * 0.506145); 
-    droneOsc.detune.setTargetAtTime(torsionSignal * 15, audioCtx.currentTime, 0.1); // +/- 15 cents
+    droneOsc.detune.setTargetAtTime(torsionSignal * 15, audioCtx.currentTime, 0.1);
 }
 
-// Initialisatie via klik
 window.addEventListener('mousedown', () => {
     initAudio();
     if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
 });
 
 // ==========================================
-// DEEL 3: RENDER LOOP
+// DEEL 4: MASTER RENDER LOOP
 // ==========================================
-window.addEventListener('resize', () => {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-    gl.viewport(0, 0, canvas.width, canvas.height);
-});
-
 const telemetryElement = document.getElementById('telemetry');
 
 function render(now) {
     const timeSec = now * 0.001;
 
-    gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
-    gl.uniform1f(timeLocation, timeSec);
+    // Wis het canvas met een subtiele fade-out (voor mooie bewegingsonscherpte)
+    ctx.fillStyle = 'rgba(3, 5, 8, 0.4)';
+    ctx.fillRect(0, 0, cw, ch);
 
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    // 4D Ademhaling
+    const breathScale = 0.90 + ((Math.sin(timeSec * 2.0) + 1.0) / 2.0) * 0.18;
 
-    // Update de audio parameters synchroon met de visuele shader
+    // Rotatie Quaternions
+    const theta = timeSec * VORTEX_ANGLE_RAD;
+    const rotorXW = createRotor(1, 0, 0, theta);
+    const rotorYZ = createRotor(0, 1, 0, theta * PHI);
+
+    const projectedNodes = [];
+
+    // Bereken alle 16 hoekpunten
+    for (let i = 0; i < 16; i++) {
+        let node = { ...baseNodes[i] };
+        
+        // Pas schaal toe
+        node.x *= breathScale; node.y *= breathScale; node.z *= breathScale; node.w *= breathScale;
+
+        // Pas rotaties toe
+        node = qmul(rotorXW, node);
+        node = qmul(rotorYZ, node);
+
+        // Projecteer naar 2D
+        const p2 = project4Dto2D(node);
+        projectedNodes.push({
+            x: cx + p2.x * scale,
+            y: cy + p2.y * scale
+        });
+    }
+
+    // Teken Ribben (Hamming distance = 1)
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 16; i++) {
+        for (let j = i + 1; j < 16; j++) {
+            const diff = i ^ j;
+            if (diff === 1 || diff === 2 || diff === 4 || diff === 8) {
+                ctx.beginPath();
+                ctx.moveTo(projectedNodes[i].x, projectedNodes[i].y);
+                ctx.lineTo(projectedNodes[j].x, projectedNodes[j].y);
+                
+                // Neon gloed effect
+                ctx.strokeStyle = 'rgba(0, 150, 255, 0.8)';
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = '#00aaff';
+                ctx.stroke();
+            }
+        }
+    }
+
+    // Teken Knooppunten
+    for (let i = 0; i < 16; i++) {
+        ctx.beginPath();
+        ctx.arc(projectedNodes[i].x, projectedNodes[i].y, 4, 0, Math.PI * 2);
+        
+        // Highlight spiegelpunten (0, 5, 10, 15)
+        if (i === 0 || i === 5 || i === 10 || i === 15) {
+            ctx.fillStyle = '#00ff00';
+            ctx.shadowColor = '#00ff00';
+            ctx.shadowBlur = 15;
+        } else {
+            ctx.fillStyle = '#00ffff';
+            ctx.shadowColor = '#00ffff';
+            ctx.shadowBlur = 10;
+        }
+        ctx.fill();
+    }
+
+    // Audio & Telemetrie updaten
     updateAuralization(timeSec);
     
-    if(isAudioInitialized && Math.floor(now) % 15 === 0) {
+    if (isAudioInitialized && Math.floor(now) % 15 === 0) {
         const breathVal = ((Math.sin(timeSec * 2.0) + 1.0) / 2.0 * 100).toFixed(1);
         telemetryElement.innerHTML = `> SYNC: AUDIO/VISUEEL VERGRENDELD<br>> AURALISATIE FREQ: 54Hz<br>> FILTER EXPANSIE: <span class="highlight">${breathVal}%</span>`;
     }
