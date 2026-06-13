@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VORTEX // OMNI-ENGINE (WebGL + Auralization)</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background-color: #000000;
+            color: #38bdf8;
+            font-family: 'Monaco', 'Consolas', 'Ubuntu Mono', monospace;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        #glcanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+            cursor: crosshair;
+        }
+        #overlay {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 2;
+            background: rgba(8, 12, 16, 0.85);
+            padding: 20px 25px;
+            border: 1px solid #1e293b;
+            border-radius: 8px;
+            pointer-events: none;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+            backdrop-filter: blur(5px);
+        }
+        h1 { font-size: 1.1rem; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 8px; color: #e2e8f0; }
+        p { font-size: 0.75rem; color: #64748b; line-height: 1.5; }
+        .highlight { color: #38bdf8; }
+        .data-stream { color: #00FF00; margin-top: 15px; font-size: 0.7rem; }
+    </style>
+</head>
+<body>
+
+    <canvas id="glcanvas"></canvas>
+
+    <div id="overlay">
+        <h1>VORTEX <span class="highlight">// OMNI-ENGINE</span></h1>
+        <p>18x13 Faseruimte | Torus Topologie<br>
+        29° Asymmetrische Torsie ($\tau$)<br>
+        DataTexture: King Wen Sequence (RG8UI)</p>
+        <div class="data-stream" id="telemetry">> INIT: Wachten op observer (Klik om Audio te starten)...</div>
+    </div>
+
+<script>
+// ==========================================
+// DEEL 1: WEBGL VISUELE ENGINE
+// ==========================================
+const canvas = document.getElementById('glcanvas');
+const gl = canvas.getContext('webgl2');
+
+if (!gl) {
+    alert('WebGL2 wordt niet ondersteund. Gebruik Firefox met WebGL ingeschakeld.');
+}
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+// --- SHADERS ---
+const vsSource = `#version 300 es
+    in vec4 aVertexPosition;
+    void main() { gl_Position = aVertexPosition; }
+`;
+
+const fsSource = `#version 300 es
+    precision highp float;
+    uniform highp usampler2D u_dataGrid; 
+    uniform vec2 u_resolution;
+    uniform float u_time;
+    uniform vec2 u_mouse;
+    
+    out vec4 fragColor;
+
+    #define VORTEX_ANGLE_RAD 0.506145 // 29 graden WTC / Lucas as
+
+    vec3 getWuxingColor(uint element) {
+        if(element == 0u) return vec3(0.18, 0.54, 0.34); // Hout
+        if(element == 1u) return vec3(1.00, 0.27, 0.00); // Vuur
+        if(element == 2u) return vec3(0.85, 0.64, 0.12); // Aarde
+        if(element == 3u) return vec3(0.82, 0.82, 0.82); // Metaal
+        return vec3(0.11, 0.56, 1.00);                   // Water
+    }
+
+    void main() {
+        vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+        vec2 mouseUV = vec2(u_mouse.x, u_resolution.y - u_mouse.y) / u_resolution.xy;
+
+        float dynamicVortex = VORTEX_ANGLE_RAD + (mouseUV.x - 0.5) * 0.1;
+        mat2 vortexRot = mat2(cos(dynamicVortex), -sin(dynamicVortex),
+                              sin(dynamicVortex),  cos(dynamicVortex));
+
+        // 18x13 Raster
+        vec2 gridUV = vortexRot * (uv * vec2(18.0, 13.0));
+        gridUV += vec2(sin(u_time * 0.5 + gridUV.y), cos(u_time * 0.3 + gridUV.x)) * 0.05;
+        
+        vec2 cellUV = fract(gridUV);
+        vec2 cellIndex = floor(gridUV);
+
+        // O(1) Data Fetch van de Torus (modulo zorgt voor naadloze randen)
+        ivec2 texCoord = ivec2(int(mod(cellIndex.x, 18.0)), int(mod(cellIndex.y, 13.0)));
+        uvec2 cellData = texelFetch(u_dataGrid, texCoord, 0).rg;
+        
+        uint hexagramValue = cellData.r; 
+        uint wuxingElement = cellData.g; 
+
+        vec3 baseColor = getWuxingColor(wuxingElement);
+
+        // Observer Effect & Torsie (τ)
+        float distToMouse = length(uv - mouseUV);
+        float observerPressure = smoothstep(0.2, 0.0, distToMouse) * 2.5;
+
+        float torsionX = sin(u_time * 2.0 + cellIndex.x * 0.8);
+        float torsionY = cos(u_time * 1.5 + cellIndex.y * 1.2);
+        float torsion = torsionX * torsionY + observerPressure; 
+
+        // Ke-frictie (De Rode Gloed)
+        float frictionPulse = smoothstep(0.4, 0.9, abs(torsion));
+        vec3 keHighlight = vec3(1.0, 0.1, 0.0) * frictionPulse;
+
+        float edgeDist = length(cellUV - vec2(0.5));
+        float nodeGlow = smoothstep(0.5, 0.1, edgeDist);
+
+        vec3 finalColor = mix(baseColor * nodeGlow, keHighlight, frictionPulse * 0.7);
+
+        // Binaire Gray-Code vonken
+        float sparkSpeed = u_time * 4.0;
+        float bitPulse = float(hexagramValue) * 0.05; 
+        float sparkX = smoothstep(0.95, 1.0, sin(sparkSpeed + cellIndex.x + bitPulse));
+        float sparkY = smoothstep(0.95, 1.0, cos(sparkSpeed + cellIndex.y + bitPulse));
+        
+        finalColor += vec3(0.0, 1.0, 0.2) * max(sparkX, sparkY) * 0.8;
+
+        fragColor = vec4(finalColor, 1.0);
+    }
+`;
+
+function loadShader(gl, type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        console.error('Shader compile error:', gl.getShaderInfoLog(shader));
+        return null;
+    }
+    return shader;
+}
+
+const shaderProgram = gl.createProgram();
+gl.attachShader(shaderProgram, loadShader(gl, gl.VERTEX_SHADER, vsSource));
+gl.attachShader(shaderProgram, loadShader(gl, gl.FRAGMENT_SHADER, fsSource));
+gl.linkProgram(shaderProgram);
+
+// Setup Geometry
+const positionBuffer = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0, -1.0]), gl.STATIC_DRAW);
+const posAttr = gl.getAttribLocation(shaderProgram, 'aVertexPosition');
+gl.enableVertexAttribArray(posAttr);
+gl.vertexAttribPointer(posAttr, 2, gl.FLOAT, false, 0, 0);
+
+// Setup DataTexture (18x13)
+const GRID_WIDTH = 18;
+const GRID_HEIGHT = 13;
+const TOTAL_CELLS = GRID_WIDTH * GRID_HEIGHT;
+const gridData = new Uint8Array(TOTAL_CELLS * 2);
+
+for (let i = 0; i < TOTAL_CELLS; i++) {
+    let hexValue = i % 64; 
+    let wuxingValue = (hexValue % 5); 
+    gridData[i * 2] = hexValue;      
+    gridData[i * 2 + 1] = wuxingValue; 
+}
+
+const dataTexture = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, dataTexture);
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8UI, GRID_WIDTH, GRID_HEIGHT, 0, gl.RG_INTEGER, gl.UNSIGNED_BYTE, gridData);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+const resolutionLocation = gl.getUniformLocation(shaderProgram, 'u_resolution');
+const timeLocation = gl.getUniformLocation(shaderProgram, 'u_time');
+const mouseLocation = gl.getUniformLocation(shaderProgram, 'u_mouse');
+gl.useProgram(shaderProgram);
+gl.uniform1i(gl.getUniformLocation(shaderProgram, 'u_dataGrid'), 0); 
+
+// ==========================================
+// DEEL 2: ARCHAEOACOUSTISCHE AUDIO ENGINE
+// ==========================================
+let audioCtx, masterGain, droneOsc, torsionFilter, lfo;
+let isAudioInitialized = false;
+let mouseX = canvas.width / 2;
+let mouseY = canvas.height / 2;
+
+function initVortexAudio() {
+    if (isAudioInitialized) return;
+    
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    audioCtx = new AudioContext();
+    
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.4; // Algemeen volume
+    masterGain.connect(audioCtx.destination);
+    
+    // De Filter die "wringt" onder invloed van de muis
+    torsionFilter = audioCtx.createBiquadFilter();
+    torsionFilter.type = 'lowpass';
+    torsionFilter.frequency.value = 150; 
+    torsionFilter.Q.value = 1; 
+    torsionFilter.connect(masterGain);
+    
+    // Monumentale Drone op 54Hz
+    droneOsc = audioCtx.createOscillator();
+    droneOsc.type = 'sawtooth';
+    droneOsc.frequency.value = 54.0;
+    droneOsc.connect(torsionFilter);
+    droneOsc.start();
+    
+    // LFO voor het ademen van de Torus
+    lfo = audioCtx.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = 0.05; // Zeer trage cyclus
+    
+    const lfoGain = audioCtx.createGain();
+    lfoGain.gain.value = 300; 
+    
+    lfo.connect(lfoGain);
+    lfoGain.connect(torsionFilter.frequency);
+    lfo.start();
+    
+    isAudioInitialized = true;
+    document.getElementById('telemetry').innerText = "> ENGINE ONLINE: Audio Sync... OK";
+}
+
+function updateAuralization(timeSec) {
+    if (!isAudioInitialized || !audioCtx) return;
+    
+    // Bereken waarnemerdruk voor de filter resonantie
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    const distToCenter = Math.hypot(mouseX - centerX, mouseY - centerY);
+    const normalizedDist = Math.max(0, 1.0 - (distToCenter / (canvas.width / 2)));
+    
+    // Hoe dichter de muis bij het centrum, hoe meer de ruimtetijd 'scheurt' (hoge Q)
+    const targetQ = 1 + (normalizedDist * 20);
+    torsionFilter.Q.setTargetAtTime(targetQ, audioCtx.currentTime, 0.1);
+    
+    // Lichte harmonische drift van de drone
+    const drift = Math.sin(timeSec * 0.5) * 0.3;
+    droneOsc.frequency.setTargetAtTime(54.0 + drift, audioCtx.currentTime, 0.1);
+}
+
+// --- EVENTS ---
+window.addEventListener('resize', () => {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    gl.viewport(0, 0, canvas.width, canvas.height);
+});
+
+canvas.addEventListener('mousemove', (e) => {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+});
+
+canvas.addEventListener('mousedown', () => {
+    initVortexAudio();
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+});
+
+// ==========================================
+// DEEL 3: MASTER RENDER LOOP
+// ==========================================
+function render(now) {
+    const timeSec = now * 0.001;
+
+    // WebGL Updates
+    gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
+    gl.uniform1f(timeLocation, timeSec);
+    gl.uniform2f(mouseLocation, mouseX, mouseY);
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, dataTexture);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    
+    // Audio Updates
+    updateAuralization(timeSec);
+
+    // Telemetry HUD Update
+    if(isAudioInitialized && Math.floor(now) % 15 === 0) {
+        document.getElementById('telemetry').innerText = 
+            `> τ-flux: ${Math.sin(timeSec).toFixed(4)} | Auralization: Active | G-CODE Routing: OK`;
+    }
+
+    requestAnimationFrame(render);
+}
+
+requestAnimationFrame(render);
+</script>
+
+</body>
+</html>
