@@ -201,4 +201,93 @@ gl.useProgram(shaderProgram);
 // ==========================================
 // DEEL 2: ARCHAEOAKOESTISCHE ENGINE
 // ==========================================
-let audioCtx, masterGain, droneOsc,
+let audioCtx, masterGain, droneOsc, breathFilter;
+let isAudioInitialized = false;
+
+function initAudio() {
+    if (isAudioInitialized) return;
+
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    audioCtx = new AudioContext();
+
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.4; // Veilig basisvolume
+    masterGain.connect(audioCtx.destination);
+
+    // De filter die de "ademhaling" nabootst
+    breathFilter = audioCtx.createBiquadFilter();
+    breathFilter.type = 'lowpass';
+    breathFilter.frequency.value = 100; // Startwaarde
+    breathFilter.Q.value = 4.0; // Hoge resonantie voor karakter
+    breathFilter.connect(masterGain);
+
+    // Fundamentele Drone Oscillator
+    droneOsc = audioCtx.createOscillator();
+    droneOsc.type = 'sawtooth'; // Rijke harmonischen voor de filter om mee te spelen
+    droneOsc.frequency.value = 54.0; // Diepe architectonische bas
+    droneOsc.connect(breathFilter);
+    droneOsc.start();
+
+    isAudioInitialized = true;
+    
+    // Update de UI
+    document.getElementById('click-warning').style.display = 'none';
+    document.getElementById('overlay').style.borderLeft = '3px solid #00ff00';
+}
+
+function updateAuralization(timeSec) {
+    if (!isAudioInitialized || !audioCtx) return;
+
+    // 1. Koppel 4D Ademhaling (sin(t*2)) aan de Lowpass Filter Cutoff
+    // Zorgt dat het geluid 'opent' bij uitdijing en 'sluit' bij contractie
+    const breathSignal = (Math.sin(timeSec * 2.0) + 1.0) / 2.0; // 0.0 tot 1.0
+    const filterFreq = 80 + (breathSignal * 300); // Oscilleert tussen 80Hz en 380Hz
+    breathFilter.frequency.setTargetAtTime(filterFreq, audioCtx.currentTime, 0.1);
+
+    // 2. Koppel 29° Torsie-as aan subtiele Detune
+    // Simuleert de wrijving/het wringen van de Vortex
+    const torsionSignal = Math.sin(timeSec * 0.506145); 
+    droneOsc.detune.setTargetAtTime(torsionSignal * 15, audioCtx.currentTime, 0.1); // +/- 15 cents
+}
+
+// Initialisatie via klik
+window.addEventListener('mousedown', () => {
+    initAudio();
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+});
+
+// ==========================================
+// DEEL 3: RENDER LOOP
+// ==========================================
+window.addEventListener('resize', () => {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    gl.viewport(0, 0, canvas.width, canvas.height);
+});
+
+const telemetryElement = document.getElementById('telemetry');
+
+function render(now) {
+    const timeSec = now * 0.001;
+
+    gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
+    gl.uniform1f(timeLocation, timeSec);
+
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+    // Update de audio parameters synchroon met de visuele shader
+    updateAuralization(timeSec);
+    
+    if(isAudioInitialized && Math.floor(now) % 15 === 0) {
+        const breathVal = ((Math.sin(timeSec * 2.0) + 1.0) / 2.0 * 100).toFixed(1);
+        telemetryElement.innerHTML = `> SYNC: AUDIO/VISUEEL VERGRENDELD<br>> AURALISATIE FREQ: 54Hz<br>> FILTER EXPANSIE: <span class="highlight">${breathVal}%</span>`;
+    }
+
+    requestAnimationFrame(render);
+}
+
+requestAnimationFrame(render);
+</script>
+
+</body>
+</html>
