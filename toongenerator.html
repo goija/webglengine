@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VORTEX OS - Synodische Maan Sonificatie</title>
+    <style>
+        body {
+            background-color: #060A14;
+            color: white;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .dashboard {
+            background-color: #0a1120;
+            border: 2px solid #162032;
+            border-radius: 12px;
+            padding: 30px;
+            width: 450px;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.1);
+        }
+        h2 {
+            color: #00FFFF;
+            margin-top: 0;
+            border-bottom: 1px solid #162032;
+            padding-bottom: 10px;
+        }
+        .telemetry {
+            background-color: #050810;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid #162032;
+        }
+        .telemetry-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            color: #7A8A9E;
+        }
+        .value {
+            color: #cfb53b;
+            font-weight: bold;
+        }
+        input[type="range"] {
+            width: 100%;
+            margin: 20px 0;
+            accent-color: #FF007F;
+        }
+        .controls {
+            display: flex;
+            gap: 15px;
+        }
+        button {
+            flex: 1;
+            background-color: #1E2A38;
+            color: #00FFFF;
+            border: 1px solid #00FFFF;
+            padding: 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.2s ease;
+        }
+        button:hover {
+            background-color: #00FFFF;
+            color: #060A14;
+        }
+        button.active {
+            background-color: #FF007F;
+            border-color: #FF007F;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="dashboard">
+        <h2>Maanomloop Sonificatie (29.53 Dagen)</h2>
+        
+        <div class="telemetry">
+            <div class="telemetry-row">
+                <span>Cyclus Dag:</span>
+                <span id="display-dag" class="value">0.00</span>
+            </div>
+            <div class="telemetry-row">
+                <span>Verlichting (%):</span>
+                <span id="display-fase" class="value">0.0% (Nieuwe Maan)</span>
+            </div>
+            <div class="telemetry-row">
+                <span>Oscillator Freq (Hz):</span>
+                <span id="display-freq" class="value">432.00 Hz</span>
+            </div>
+        </div>
+
+        <input type="range" id="dag-slider" min="0" max="29.53059" step="0.01" value="0">
+        
+        <div class="controls">
+            <button id="btn-toggle">AUDIO INSCHAKELEN</button>
+        </div>
+    </div>
+
+    <script>
+        // Astronomische constanten
+        const synodischeMaand = 29.53059;
+        const basisFrequentie = 432.0; // 432 Hz als nulpunt (Nieuwe Maan)
+        
+        // Audio variabelen
+        let audioCtx;
+        let oscillator;
+        let gainNode;
+        let isPlaying = false;
+
+        // DOM Elementen
+        const slider = document.getElementById('dag-slider');
+        const btnToggle = document.getElementById('btn-toggle');
+        const displayDag = document.getElementById('display-dag');
+        const displayFase = document.getElementById('display-fase');
+        const displayFreq = document.getElementById('display-freq');
+
+        // Wiskundige berekening van de maanfase en frequentie
+        function berekenTelemetrie(dag) {
+            // Fasehoek in radialen (0 tot 2π)
+            const faseHoek = (dag / synodischeMaand) * 2 * Math.PI;
+            
+            // Verlichtingsgraad (0.0 tot 1.0) via cosinus
+            const verlichtingRatio = 0.5 * (1 - Math.cos(faseHoek));
+            const verlichtingProcent = (verlichtingRatio * 100).toFixed(1);
+            
+            // Bepaal de naam van de fase
+            let faseNaam = "Wassende Maan";
+            if (verlichtingProcent < 2) faseNaam = "Nieuwe Maan";
+            else if (verlichtingProcent > 98) faseNaam = "Volle Maan";
+            else if (dag > synodischeMaand / 2) faseNaam = "Afnemende Maan";
+
+            // Frequentieberekening: 1 octaaf stijging (432 Hz -> 864 Hz)
+            const frequentie = basisFrequentie * Math.pow(2, verlichtingRatio);
+
+            return { verlichtingProcent, faseNaam, frequentie };
+        }
+
+        // Update de interface en audio bij verschuiving van de slider
+        function updateSysteem() {
+            const dag = parseFloat(slider.value);
+            const { verlichtingProcent, faseNaam, frequentie } = berekenTelemetrie(dag);
+
+            // Update UI
+            displayDag.textContent = dag.toFixed(2);
+            displayFase.textContent = `${verlichtingProcent}% (${faseNaam})`;
+            displayFreq.textContent = `${frequentie.toFixed(2)} Hz`;
+
+            // Pas audio aan indien actief
+            if (isPlaying && oscillator) {
+                // Gebruik setTargetAtTime voor een vloeiende, plop-vrije overgang
+                oscillator.frequency.setTargetAtTime(frequentie, audioCtx.currentTime, 0.05);
+            }
+        }
+
+        // Initialiseer Web Audio API
+        function startAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+
+            oscillator = audioCtx.createOscillator();
+            gainNode = audioCtx.createGain();
+
+            // Gebruik een sinusgolf voor een zuivere, resonante toon
+            oscillator.type = 'sine';
+            
+            // Bepaal startfrequentie
+            const { frequentie } = berekenTelemetrie(parseFloat(slider.value));
+            oscillator.frequency.setValueAtTime(frequentie, audioCtx.currentTime);
+
+            // Volume-instellingen (voorkom clipping)
+            gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+            gainNode.gain.linearRampToValueAtTime(0.3, audioCtx.currentTime + 0.1);
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            oscillator.start();
+            isPlaying = true;
+            btnToggle.textContent = 'AUDIO STOPPEN';
+            btnToggle.classList.add('active');
+        }
+
+        function stopAudio() {
+            if (oscillator && gainNode) {
+                // Fade out netjes om klikken te voorkomen
+                gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);
+                oscillator.stop(audioCtx.currentTime + 0.1);
+            }
+            isPlaying = false;
+            btnToggle.textContent = 'AUDIO INSCHAKELEN';
+            btnToggle.classList.remove('active');
+        }
+
+        // Event Listeners
+        slider.addEventListener('input', updateSysteem);
+        
+        btnToggle.addEventListener('click', () => {
+            if (isPlaying) {
+                stopAudio();
+            } else {
+                startAudio();
+            }
+        });
+
+        // Initialiseer de waarden bij het laden
+        updateSysteem();
+    </script>
+</body>
+</html>
