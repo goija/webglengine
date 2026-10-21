@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VORTEX OS - Radiale Maan Sonificatie</title>
+    <style>
+        body { background-color: #060A14; color: white; font-family: 'Courier New', Courier, monospace; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .dashboard { background-color: #0a1120; border: 2px solid #162032; border-radius: 12px; padding: 30px; text-align: center; box-shadow: 0 0 20px rgba(0, 255, 255, 0.1); }
+        canvas { background-color: #060A14; border-radius: 50%; margin: 20px 0; border: 1px solid #162032; }
+        .telemetry { display: flex; justify-content: space-between; padding: 15px; background-color: #050810; border-radius: 8px; border: 1px solid #162032; margin-bottom: 20px; font-size: 14px; }
+        .value { color: #cfb53b; font-weight: bold; }
+        input[type="range"] { width: 100%; margin-bottom: 20px; accent-color: #FF007F; }
+        button { background-color: #1E2A38; color: #00FFFF; border: 1px solid #00FFFF; padding: 15px 24px; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%; letter-spacing: 1px; transition: 0.2s; }
+        button:hover { background-color: #00FFFF; color: #060A14; }
+        button.active { background-color: #FF007F; border-color: #FF007F; color: white; }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <h2 style="color: #00FFFF; margin-top: 0; border-bottom: 1px solid #162032; padding-bottom: 15px;">Radiale Maanomloop & Sonificatie</h2>
+        
+        <div class="telemetry">
+            <span>Dag: <span id="v-dag" class="value">0.00</span></span>
+            <span>Fase: <span id="v-fase" class="value">Nieuwe Maan</span> (<span id="v-ill">0.0</span>%)</span>
+            <span>Freq: <span id="v-freq" class="value">432.00 Hz</span></span>
+        </div>
+        
+        <canvas id="moonCanvas" width="450" height="450"></canvas>
+        
+        <input type="range" id="slider" min="0" max="29.53059" step="0.01" value="0">
+        <button id="btnToggle">START ANIMATIE & AUDIO</button>
+    </div>
+
+    <script>
+        const synodischeMaand = 29.53059;
+        const basisFrequentie = 432.0; 
+        
+        let audioCtx, oscillator, gainNode;
+        let isPlaying = false;
+        let animateId;
+        let currentDag = 0;
+
+        const canvas = document.getElementById('moonCanvas');
+        const ctx = canvas.getContext('2d');
+        const slider = document.getElementById('slider');
+        const btnToggle = document.getElementById('btnToggle');
+
+        function getFaseInfo(illProcent, dag) {
+            if (illProcent < 5) return { naam: "Nieuwe Maan", kleur: "#7A8A9E" };
+            if (illProcent > 95) return { naam: "Volle Maan", kleur: "#ffcc00" };
+            if (dag < synodischeMaand / 2) return { naam: "Wassende Maan", kleur: "#00FFFF" };
+            return { naam: "Afnemende Maan", kleur: "#FF007F" };
+        }
+
+        function drawRadar() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            const maxR = 200;
+
+            // Achtergrond assenstelsel en radiale cirkels
+            ctx.strokeStyle = '#162032';
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.arc(cx, cy, maxR, 0, Math.PI * 2); ctx.stroke();
+            ctx.beginPath(); ctx.arc(cx, cy, maxR * 0.66, 0, Math.PI * 2); ctx.stroke();
+            ctx.beginPath(); ctx.arc(cx, cy, maxR * 0.33, 0, Math.PI * 2); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(cx, cy - maxR); ctx.lineTo(cx, cy + maxR); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(cx - maxR, cy); ctx.lineTo(cx + maxR, cy); ctx.stroke();
+
+            // Teken het gestippelde baan-pad
+            ctx.strokeStyle = '#cfb53b';
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            for (let d = 0; d <= synodischeMaand; d += 0.2) {
+                let th = (d / synodischeMaand) * 2 * Math.PI;
+                let illRatio = 0.5 * (1 - Math.cos(th));
+                let r = illRatio * maxR;
+                // Draai 90 graden naar links (zodat Dag 0 bovenaan in het centrum begint)
+                let x = cx + r * Math.cos(th - Math.PI/2);
+                let y = cy + r * Math.sin(th - Math.PI/2);
+                if (d === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Bereken huidige positie
+            let th = (currentDag / synodischeMaand) * 2 * Math.PI;
+            let illRatio = 0.5 * (1 - Math.cos(th));
+            let illProcent = illRatio * 100;
+            let r = illRatio * maxR;
+            
+            let px = cx + r * Math.cos(th - Math.PI/2);
+            let py = cy + r * Math.sin(th - Math.PI/2);
+
+            const faseInfo = getFaseInfo(illProcent, currentDag);
+
+            // Teken het huidige maan-knooppunt
+            ctx.fillStyle = faseInfo.kleur;
+            ctx.beginPath();
+            ctx.arc(px, py, 10, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Neon gloed effect
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = faseInfo.kleur;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // Update Telemetrie UI getallen
+            const freq = basisFrequentie * Math.pow(2, illRatio);
+            document.getElementById('v-dag').textContent = currentDag.toFixed(2);
+            document.getElementById('v-ill').textContent = illProcent.toFixed(1);
+            document.getElementById('v-fase').textContent = faseInfo.naam;
+            document.getElementById('v-freq').textContent = freq.toFixed(2) + " Hz";
+
+            return freq;
+        }
+
+        function updateAudio(freq) {
+            if (isPlaying && oscillator) {
+                oscillator.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.05);
+            }
+        }
+
+        function tick() {
+            if (isPlaying) {
+                currentDag += 0.08; // Snelheid van de omloop animatie
+                if (currentDag > synodischeMaand) currentDag = 0;
+                slider.value = currentDag;
+                
+                let freq = drawRadar();
+                updateAudio(freq);
+                animateId = requestAnimationFrame(tick);
+            }
+        }
+
+        slider.addEventListener('input', (e) => {
+            currentDag = parseFloat(e.target.value);
+            let freq = drawRadar();
+            updateAudio(freq);
+        });
+
+        btnToggle.addEventListener('click', () => {
+            if (isPlaying) {
+                isPlaying = false;
+                cancelAnimationFrame(animateId);
+                if (gainNode) {
+                    gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);
+                    setTimeout(() => oscillator.stop(), 150);
+                }
+                btnToggle.textContent = 'START ANIMATIE & AUDIO';
+                btnToggle.classList.remove('active');
+            } else {
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                oscillator = audioCtx.createOscillator();
+                gainNode = audioCtx.createGain();
+                oscillator.type = 'sine';
+                
+                let freq = drawRadar();
+                oscillator.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                
+                gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+                gainNode.gain.linearRampToValueAtTime(0.3, audioCtx.currentTime + 0.1);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                oscillator.start();
+                
+                isPlaying = true;
+                btnToggle.textContent = 'STOP ANIMATIE';
+                btnToggle.classList.add('active');
+                tick();
+            }
+        });
+
+        // Initialiseer eerste frame
+        drawRadar();
+    </script>
+</body>
+</html>
